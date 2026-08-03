@@ -10,7 +10,7 @@ use crate::backend::pty::PtyHandle;
 use crate::backend::terminal::Terminal;
 use crate::config::{AppConfig, CliEntry};
 use crate::state::{Session, SessionStatus};
-use crate::ui::{sidebar, terminal};
+use crate::ui::{sidebar, terminal, titlebar};
 
 pub struct HubApp {
     config: AppConfig,
@@ -235,6 +235,9 @@ impl HubApp {
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {
+        // 自定义无边框标题栏（占用顶部，面板自动下移）
+        titlebar::show(ui);
+
         let mut side = sidebar::SidebarAction::default();
         egui::Panel::left("sidebar")
             .resizable(false)
