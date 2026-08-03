@@ -29,24 +29,33 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// 加载系统字体：等宽主字体 + CJK 兜底，避免终端中文显示为方块。
+/// 加载系统字体，追求原生 Windows 观感：
+/// - UI 拉丁字符用 Segoe UI（Windows 默认 UI 字体）
+/// - 终端等宽用 Consolas
+/// - CJK 用微软雅黑（msyh.ttc，egui 的 skrifa 支持 ttc 集合），DengXian 兜底
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let load = |path: &str| -> Option<(String, Vec<u8>)> {
-        match std::fs::read(path) {
-            Ok(data) => {
-                let name = path
-                    .split(['\\', '/'])
-                    .last()
-                    .unwrap_or("font")
-                    .to_owned();
-                Some((name, data))
-            }
-            Err(_) => None,
-        }
+        std::fs::read(path).ok().map(|data| {
+            let name = path
+                .split(['\\', '/'])
+                .last()
+                .unwrap_or("font")
+                .to_owned();
+            (name, data)
+        })
     };
 
-    // 等宽主字体（Windows 上的 Consolas）
+    // UI 拉丁字体：Segoe UI 放最前（替换默认的 Ubuntu-Light）
+    if let Some((name, data)) = load(r"C:\Windows\Fonts\segoeui.ttf") {
+        fonts
+            .font_data
+            .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
+        if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+            prop.insert(0, name);
+        }
+    }
+    // 终端等宽字体：Consolas 放最前
     if let Some((name, data)) = load(r"C:\Windows\Fonts\consola.ttf") {
         fonts
             .font_data
@@ -55,11 +64,11 @@ fn setup_fonts(ctx: &egui::Context) {
             mono.insert(0, name);
         }
     }
-    // CJK 兜底（SimHei 为 TTF，ab_glyph 可解析）
+    // CJK 兜底链：微软雅黑 → DengXian → SimHei
     for path in [
-        r"C:\Windows\Fonts\simhei.ttf",
         r"C:\Windows\Fonts\msyh.ttc",
         r"C:\Windows\Fonts\Deng.ttf",
+        r"C:\Windows\Fonts\simhei.ttf",
     ] {
         if let Some((name, data)) = load(path) {
             fonts

@@ -33,7 +33,7 @@ pub struct TermTheme {
 impl TermTheme {
     pub fn light() -> Self {
         Self {
-            font_size: 13.0,
+            font_size: 13.5,
             background: Color32::from_rgb(255, 255, 255),
             foreground: Color32::from_rgb(31, 35, 40),
             cursor: Color32::from_rgb(9, 105, 218),
