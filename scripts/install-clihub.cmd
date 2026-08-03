@@ -1,6 +1,6 @@
 @echo off
-rem 把 clihub 安装为终端命令：构建 release、复制到 %LOCALAPPDATA%\Programs\clihub、
-rem 并加入用户 PATH。之后在任何终端输入 clihub 即可打开。
+rem Install 'clihub' as a terminal command:
+rem build release, copy to %LOCALAPPDATA%\Programs\clihub, add to User PATH.
 setlocal
 set DEST=%LOCALAPPDATA%\Programs\clihub
 set SCRIPT_DIR=%~dp0
@@ -16,7 +16,7 @@ if not exist "%DEST%" mkdir "%DEST%"
 copy /y "%SCRIPT_DIR%..\target\release\clihub.exe" "%DEST%\clihub.exe" >nul
 echo [clihub] installed: %DEST%\clihub.exe
 
-rem 用 PowerShell 安全地把目录加入"用户" PATH（不截断系统 PATH）
+rem Add dir to User PATH safely (does not truncate System PATH).
 powershell -NoProfile -Command ^
   "$d = Join-Path $env:LOCALAPPDATA 'Programs\clihub';" ^
   "$up = [Environment]::GetEnvironmentVariable('Path','User');" ^
