@@ -296,10 +296,10 @@ impl HubApp {
             }
         }
         if dirty {
-            ctx.request_repaint();
+            ctx.request_repaint(); // 有输出立即重绘
         }
-        // 终端流式输出需要持续重绘
-        ctx.request_repaint_after(Duration::from_millis(33));
+        // 空闲时用低频重绘（仅维持光标闪烁 ~2Hz），避免 30fps 空转烧 CPU
+        ctx.request_repaint_after(Duration::from_millis(500));
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {

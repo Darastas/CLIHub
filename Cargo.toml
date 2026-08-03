@@ -3,6 +3,10 @@ name = "ai-cli-hub"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "clihub"
+path = "src/main.rs"
+
 [dependencies]
 alacritty_terminal = "0.26.0"
 anyhow = "1.0.104"

@@ -9,6 +9,16 @@ mod ui;
 use app::HubApp;
 
 fn main() -> eframe::Result {
+    // 崩溃日志落盘，便于诊断闪退
+    std::panic::set_hook(Box::new(|info| {
+        let msg = format!(
+            "[clihub panic] {info}\n{}",
+            std::backtrace::Backtrace::force_capture()
+        );
+        eprintln!("{msg}");
+        let _ = std::fs::write("clihub-panic.log", msg);
+    }));
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("AI CLI Hub")
