@@ -103,10 +103,11 @@ pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
     let (col_w, row_h) = ui.fonts_mut(|f| (f.glyph_width(&font_id, ' '), f.row_height(&font_id)));
 
     // ---- 终端区域 ----
-    let hint_h = row_h + 6.0;
+    const PAD_X: f32 = 6.0;
+    const HINT_H: f32 = 24.0;
     let term_size = vec2(
         ui.available_width(),
-        (ui.available_height() - hint_h).max(60.0),
+        (ui.available_height() - HINT_H).max(60.0),
     );
     let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click());
     if resp.clicked() {
@@ -114,9 +115,15 @@ pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
     }
     let focused = resp.has_focus();
 
-    // 按实际面板尺寸换算行列数并同步
-    let cols = ((term_rect.width() / col_w).floor().max(1.0)) as u16;
-    let rows = ((term_rect.height() / row_h).floor().max(1.0)) as u16;
+    // 网格可用区域：左右留 6px 内边距，顶部留 4px
+    let grid_rect = Rect::from_min_max(
+        term_rect.min + vec2(PAD_X, 4.0),
+        term_rect.max - vec2(PAD_X, 0.0),
+    );
+
+    // 按网格可用尺寸换算行列数并同步
+    let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
+    let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
     if let Some(t) = &mut session.terminal {
         t.resize(cols, rows);
     }
@@ -137,11 +144,11 @@ pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
     // 渲染网格
     match &session.terminal {
         Some(t) => {
-            paint_grid(ui, &theme, &t.term, term_rect, col_w, row_h, cols, rows, focused);
+            paint_grid(ui, &theme, &t.term, grid_rect, col_w, row_h, cols, rows, focused);
         }
         None if session.error.is_none() => {
             painter.text(
-                term_rect.min + vec2(10.0, 8.0),
+                grid_rect.min + vec2(4.0, 4.0),
                 Align2::LEFT_TOP,
                 "Session not started — click a session in the sidebar, or press Restart.",
                 FontId::proportional(13.0),
@@ -151,15 +158,16 @@ pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
         None => {}
     }
 
-    // ---- 快捷提示栏 ----
-    ui.allocate_space(vec2(0.0, hint_h));
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("click terminal to type · Ctrl+C interrupt · wheel scrolls history · ? for shortcuts")
-                .size(10.5)
-                .color(Color32::from_gray(150)),
-        );
-    });
+    // ---- 底部快捷提示条 ----
+    let (hint_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), HINT_H), Sense::hover());
+    ui.painter().rect_filled(hint_rect, 0.0, Color32::from_rgb(247, 248, 250));
+    ui.painter().text(
+        Pos2::new(hint_rect.min.x + 10.0, hint_rect.center().y),
+        Align2::LEFT_CENTER,
+        "click terminal to type · Ctrl+C interrupt · wheel scrolls history · ? for shortcuts",
+        FontId::proportional(10.5),
+        Color32::from_gray(150),
+    );
 
     action
 }

@@ -67,6 +67,17 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction
         if bg != Color32::TRANSPARENT {
             ui.painter().rect_filled(row_rect, 8.0, bg);
         }
+        // 选中项左侧强调条
+        if is_sel {
+            ui.painter().rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(row_rect.min.x + 2.0, row_rect.min.y + 9.0),
+                    Pos2::new(row_rect.min.x + 5.0, row_rect.max.y - 9.0),
+                ),
+                2.0,
+                Color32::from_rgb(9, 105, 218),
+            );
+        }
 
         // 状态圆点 + 名称 + 工作目录
         let left = Pos2::new(row_rect.min.x + 12.0, row_rect.min.y + 8.0);

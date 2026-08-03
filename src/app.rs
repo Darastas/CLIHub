@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use egui::Context;
+use egui::{Color32, Context};
 
 use crate::backend::io_loop;
 use crate::backend::pty::PtyHandle;
@@ -80,8 +80,15 @@ fn setup_fonts(ctx: &egui::Context) {
 
 impl HubApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // 目标视觉是白/浅灰极简风格
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        // 目标视觉是白/浅灰极简风格：面板浅灰、选中中性灰、无描边
+        let mut visuals = egui::Visuals::light();
+        visuals.panel_fill = Color32::from_rgb(247, 248, 250);
+        visuals.window_fill = Color32::from_rgb(250, 251, 252);
+        visuals.selection.bg_fill = Color32::from_rgb(228, 230, 234);
+        visuals.selection.stroke = egui::Stroke::NONE;
+        visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(237, 239, 242);
+        visuals.widgets.hovered.bg_fill = Color32::from_rgb(237, 239, 242);
+        cc.egui_ctx.set_visuals(visuals);
         setup_fonts(&cc.egui_ctx);
 
         let config = AppConfig::load();
