@@ -1,12 +1,13 @@
-//! 单个 CLI 会话：绑定一个 PTY 子进程、输出缓冲区和运行状态。
+//! 单个 CLI 会话：绑定一个 PTY 子进程、终端状态机（字符网格）和运行状态。
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
 
 use crate::backend::pty::PtyHandle;
+use crate::backend::terminal::Terminal;
 
 /// 会话当前状态，用于侧边栏展示。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,13 +23,14 @@ pub enum SessionStatus {
 }
 
 pub struct Session {
+    #[allow(dead_code)] // Phase 4 多实例索引
     pub id: usize,
     pub name: String,
     pub command: String,
     pub cwd: PathBuf,
 
-    /// 累积的终端文本（Round 1 为去 ANSI 后的纯文本）
-    pub output: Arc<Mutex<String>>,
+    /// alacritty 终端状态机；None 表示未启动
+    pub terminal: Option<Terminal>,
     /// 由 PTY reader 线程发来的原始字节块
     pub rx: Option<Receiver<Vec<u8>>>,
     /// PTY 句柄；None 表示未启动
@@ -46,7 +48,7 @@ impl Session {
             name: name.to_string(),
             command: command.to_string(),
             cwd,
-            output: Arc::new(Mutex::new(String::new())),
+            terminal: None,
             rx: None,
             pty: None,
             alive: Arc::new(AtomicBool::new(false)),

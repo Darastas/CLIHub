@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+alacritty_terminal = "0.26.0"
 anyhow = "1.0.104"
 crossbeam-channel = "0.5.16"
 directories = "6.0.0"

@@ -99,6 +99,7 @@ impl AppConfig {
         }
     }
 
+    #[allow(dead_code)] // Phase 2 配置编辑使用
     pub fn save(&self) -> Result<()> {
         let path = config_path();
         let dir = path.parent().context("配置文件无父目录")?;
@@ -108,6 +109,7 @@ impl AppConfig {
     }
 
     /// 导出到指定路径（测试/调试用）。
+    #[allow(dead_code)] // 调试导出
     pub fn save_to(&self, path: &Path) -> Result<()> {
         let text = serde_json::to_string_pretty(self)?;
         std::fs::write(path, text)?;

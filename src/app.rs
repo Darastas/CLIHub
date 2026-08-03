@@ -1,32 +1,84 @@
-//! 串联 UI 渲染层与后台数据层：持有全部会话，驱动 PTY 读写。
+//! 串联 UI 渲染层与后台数据层：持有全部会话，驱动 PTY 读写与终端网格。
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use egui::Context;
 
 use crate::backend::io_loop;
 use crate::backend::pty::PtyHandle;
+use crate::backend::terminal::Terminal;
 use crate::config::AppConfig;
 use crate::state::{Session, SessionStatus};
 use crate::ui::{sidebar, terminal};
 
 pub struct HubApp {
+    #[allow(dead_code)] // Phase 2+ 用于新增/编辑 CLI
     config: AppConfig,
     sessions: Vec<Session>,
     selected: usize,
-    input: String,
 }
 
-fn home_dir() -> std::path::PathBuf {
+fn home_dir() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.home_dir().to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// 加载系统字体：等宽主字体 + CJK 兜底，避免终端中文显示为方块。
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let load = |path: &str| -> Option<(String, Vec<u8>)> {
+        match std::fs::read(path) {
+            Ok(data) => {
+                let name = path
+                    .split(['\\', '/'])
+                    .last()
+                    .unwrap_or("font")
+                    .to_owned();
+                Some((name, data))
+            }
+            Err(_) => None,
+        }
+    };
+
+    // 等宽主字体（Windows 上的 Consolas）
+    if let Some((name, data)) = load(r"C:\Windows\Fonts\consola.ttf") {
+        fonts
+            .font_data
+            .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
+        if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+            mono.insert(0, name);
+        }
+    }
+    // CJK 兜底（SimHei 为 TTF，ab_glyph 可解析）
+    for path in [
+        r"C:\Windows\Fonts\simhei.ttf",
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\Deng.ttf",
+    ] {
+        if let Some((name, data)) = load(path) {
+            fonts
+                .font_data
+                .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
+            for family in [
+                egui::FontFamily::Monospace,
+                egui::FontFamily::Proportional,
+            ] {
+                if let Some(list) = fonts.families.get_mut(&family) {
+                    list.push(name.clone());
+                }
+            }
+        }
+    }
+    ctx.set_fonts(fonts);
 }
 
 impl HubApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // 目标视觉是白/浅灰极简风格
         cc.egui_ctx.set_visuals(egui::Visuals::light());
+        setup_fonts(&cc.egui_ctx);
 
         let config = AppConfig::load();
         let sessions: Vec<Session> = config
@@ -43,9 +95,8 @@ impl HubApp {
             config,
             sessions,
             selected: 0,
-            input: String::new(),
         };
-        // 自动启动首个可用的终端会话，验证 PTY 链路
+        // 自动启动首个可用的终端会话，验证链路
         if let Some(i) = app.find_terminal_index() {
             app.selected = i;
             app.spawn_session(i);
@@ -57,15 +108,12 @@ impl HubApp {
         self.sessions.iter().position(|s| s.name == "Terminal")
     }
 
-    fn session_mut(&mut self) -> Option<&mut Session> {
-        self.sessions.get_mut(self.selected)
-    }
-
     fn spawn_session(&mut self, idx: usize) {
         let Some(s) = self.sessions.get_mut(idx) else {
             return;
         };
         s.error = None;
+        s.terminal = Some(Terminal::new(24, 80));
         let command = s.command.clone();
         let cwd = s.cwd.clone();
         match PtyHandle::spawn(&command, &[], &cwd, 24, 80) {
@@ -84,24 +132,29 @@ impl HubApp {
         let Some(s) = self.sessions.get_mut(idx) else {
             return;
         };
+        if let Some(t) = &mut s.terminal {
+            t.feed_text("\r\n[session ended]\r\n");
+        }
         s.pty.take(); // Drop 会 kill 子进程
         s.rx = None;
         s.alive.store(false, std::sync::atomic::Ordering::SeqCst);
-        s.output.lock().unwrap().push_str("\n[session ended]\n");
     }
 
     fn restart_session(&mut self, idx: usize) {
         self.kill_session(idx);
+        if let Some(s) = self.sessions.get_mut(idx) {
+            s.terminal = Some(Terminal::new(24, 80));
+        }
         self.spawn_session(idx);
     }
 
-    /// 后台数据更新：拉取 PTY 输出、检测进程退出。禁止在此绘制。
+    /// 后台数据更新：拉取 PTY 输出喂进终端、检测进程退出。禁止在此绘制。
     fn update_backend(&mut self, ctx: &Context) {
         let mut dirty = false;
         for s in &mut self.sessions {
-            // 拉取 PTY 输出
+            // 拉取 PTY 输出 → 喂进 alacritty 网格
             if let Some(rx) = &s.rx {
-                if io_loop::drain(rx, &s.output) > 0 {
+                if io_loop::drain(rx, &mut s.terminal) > 0 {
                     dirty = true;
                 }
             }
@@ -109,7 +162,9 @@ impl HubApp {
             if let Some(pty) = &mut s.pty {
                 if let Ok(Some(_)) = pty.child.try_wait() {
                     s.alive.store(false, std::sync::atomic::Ordering::SeqCst);
-                    s.output.lock().unwrap().push_str("\n[process exited]\n");
+                    if let Some(t) = &mut s.terminal {
+                        t.feed_text("\r\n[process exited]\r\n");
+                    }
                 }
             }
         }
@@ -117,7 +172,7 @@ impl HubApp {
             ctx.request_repaint();
         }
         // 终端流式输出需要持续重绘
-        ctx.request_repaint_after(Duration::from_millis(50));
+        ctx.request_repaint_after(Duration::from_millis(33));
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {
@@ -137,11 +192,10 @@ impl HubApp {
 
         let mut action = None;
         egui::CentralPanel::default_margins().show(ui, |ui| {
-            // 字段级分离借用：sessions 与 input 互不重叠
             let session = self.sessions.get_mut(self.selected);
             match session {
                 Some(session) => {
-                    action = terminal::show(ui, session, &mut self.input);
+                    action = terminal::show(ui, session);
                 }
                 None => {
                     ui.centered_and_justified(|ui| {
