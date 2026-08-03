@@ -12,7 +12,7 @@ use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
 use egui::{Align2, Color32, FontId, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
 
-use crate::state::Session;
+use crate::state::{Session, SessionStatus};
 
 /// 主区域顶部按钮可能触发的动作，由 App 层执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,9 +21,13 @@ pub enum TerminalAction {
     Kill,
 }
 
-/// 终端配色主题（浅色，贴近 Example.png 的白/灰极简风格）。
+/// 终端配色主题（浅色）。
 pub struct TermTheme {
     pub font_size: f32,
+    /// 终端等宽字体族（JetBrains Mono）
+    pub font_family: egui::FontFamily,
+    /// 加粗字体族
+    pub bold_family: egui::FontFamily,
     pub background: Color32,
     pub foreground: Color32,
     pub cursor: Color32,
@@ -33,7 +37,9 @@ pub struct TermTheme {
 impl TermTheme {
     pub fn light() -> Self {
         Self {
-            font_size: 13.5,
+            font_size: 15.0,
+            font_family: egui::FontFamily::Monospace,
+            bold_family: egui::FontFamily::Name("jbmono-bold".into()),
             background: Color32::from_rgb(255, 255, 255),
             foreground: Color32::from_rgb(31, 35, 40),
             cursor: Color32::from_rgb(9, 105, 218),
@@ -69,28 +75,48 @@ pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<T
 
     // ---- 顶部信息栏 ----
     ui.horizontal(|ui| {
-        ui.label(RichText::new(&session.name).strong().size(14.0));
-        ui.label(RichText::new(super::status_dot(status)).color(super::status_color(status)));
+        ui.label(
+            RichText::new(&session.name)
+                .size(13.5)
+                .color(Color32::from_rgb(55, 65, 81)),
+        );
+        let status_text = match status {
+            SessionStatus::Running => "running",
+            SessionStatus::Idle => "idle",
+            SessionStatus::Exited => "exited",
+            SessionStatus::Failed => "failed",
+        };
+        ui.label(
+            RichText::new(status_text)
+                .size(11.0)
+                .color(super::status_color(status)),
+        );
         ui.label(
             RichText::new(session.cwd.display().to_string())
                 .size(11.0)
-                .color(Color32::from_gray(140)),
+                .color(Color32::from_gray(150)),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
-                .add_enabled(session.pty.is_some(), egui::Button::new("✕ Kill"))
+                .add_enabled(
+                    session.pty.is_some(),
+                    egui::Button::new("✕ Kill").small(),
+                )
+                .on_hover_text("Kill this session")
                 .clicked()
             {
                 action = Some(TerminalAction::Kill);
             }
             if ui
-                .add_enabled(!interactive, egui::Button::new("Restart"))
+                .add_enabled(!interactive, egui::Button::new("↻ Restart").small())
+                .on_hover_text("Restart this session")
                 .clicked()
             {
                 action = Some(TerminalAction::Restart);
             }
         });
     });
+    ui.add_space(2.0);
     ui.separator();
 
     // ---- 错误提示 ----
@@ -100,11 +126,11 @@ pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<T
     }
 
     // ---- 字体度量（决定每格宽高）----
-    let font_id = FontId::monospace(theme.font_size);
+    let font_id = FontId::new(theme.font_size, theme.font_family.clone());
     let (col_w, row_h) = ui.fonts_mut(|f| (f.glyph_width(&font_id, ' '), f.row_height(&font_id)));
 
     // ---- 终端区域 ----
-    const PAD_X: f32 = 6.0;
+    const PAD_X: f32 = 8.0;
     const HINT_H: f32 = 24.0;
     let term_size = vec2(
         ui.available_width(),
@@ -116,10 +142,10 @@ pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<T
     }
     let focused = resp.has_focus();
 
-    // 网格可用区域：左右留 6px 内边距，顶部留 4px
+    // 网格可用区域：左右留 8px 内边距，顶部留 6px
     let grid_rect = Rect::from_min_max(
-        term_rect.min + vec2(PAD_X, 4.0),
-        term_rect.max - vec2(PAD_X, 0.0),
+        term_rect.min + vec2(PAD_X, 6.0),
+        term_rect.max - vec2(PAD_X, 2.0),
     );
 
     // 按网格可用尺寸换算行列数并同步
@@ -132,9 +158,15 @@ pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<T
         p.resize(cols, rows);
     }
 
-    // 背景
+    // 背景 + 细边框
     let painter = ui.painter().with_clip_rect(term_rect);
     painter.rect_filled(term_rect, 0.0, theme.background);
+    painter.rect_stroke(
+        term_rect,
+        0.0,
+        egui::Stroke::new(1.0, Color32::from_rgb(229, 231, 235)),
+        egui::StrokeKind::Inside,
+    );
 
     // 输入转发（由 App 控制开关，与焦点无关）+ 滚轮
     if input_enabled {
@@ -292,21 +324,18 @@ fn paint_grid<T: EventListener>(
             );
         }
 
-        // 4) 画文字（painter.text 经实测可渲染）
-        let font_id = FontId::monospace(theme.font_size);
+        // 4) 画文字（painter.text 经实测可渲染；粗体用独立字体族）
+        let font_id = FontId::new(theme.font_size, theme.font_family.clone());
+        let bold_id = FontId::new(theme.font_size, theme.bold_family.clone());
         for (start, text, color, bold) in &spans {
             let pos = Pos2::new(origin.x + *start as f32 * col_w, y);
-            painter.text(pos, Align2::LEFT_TOP, text.as_str(), font_id.clone(), *color);
-            if *bold {
-                // 简易伪粗体：偏移 1px 再画一遍
-                painter.text(
-                    Pos2::new(pos.x + 1.0, y),
-                    Align2::LEFT_TOP,
-                    text.as_str(),
-                    font_id.clone(),
-                    *color,
-                );
-            }
+            painter.text(
+                pos,
+                Align2::LEFT_TOP,
+                text.as_str(),
+                if *bold { bold_id.clone() } else { font_id.clone() },
+                *color,
+            );
         }
     }
 
@@ -344,7 +373,7 @@ fn paint_grid<T: EventListener>(
                     Pos2::new(x, y),
                     Align2::LEFT_TOP,
                     glyph,
-                    FontId::monospace(theme.font_size),
+                    FontId::new(theme.font_size, theme.font_family.clone()),
                     theme.background,
                 );
             }

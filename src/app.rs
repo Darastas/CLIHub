@@ -29,12 +29,33 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// 加载系统字体，追求原生 Windows 观感：
-/// - UI 拉丁字符用 Segoe UI（Windows 默认 UI 字体）
-/// - 终端等宽用 Consolas
-/// - CJK 用微软雅黑（msyh.ttc，egui 的 skrifa 支持 ttc 集合），DengXian 兜底
+/// 加载字体：内嵌 JetBrains Mono（终端等宽，含加粗族）+ 系统字体。
+/// - Monospace：JetBrains Mono → Consolas → 微软雅黑(CJK)
+/// - Proportional（UI）：Segoe UI → 微软雅黑(CJK)
 fn setup_fonts(ctx: &egui::Context) {
+    use egui::FontFamily;
+
     let mut fonts = egui::FontDefinitions::default();
+    let arc = |data: &'static [u8]| std::sync::Arc::new(egui::FontData::from_static(data));
+
+    // 内嵌 JetBrains Mono（Regular + Bold）
+    fonts.font_data.insert(
+        "jbmono".into(),
+        arc(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")),
+    );
+    fonts.font_data.insert(
+        "jbmono-bold".into(),
+        arc(include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")),
+    );
+    // 自定义加粗族（供终端粗体字形使用）
+    fonts
+        .families
+        .insert(FontFamily::Name("jbmono-bold".into()), vec!["jbmono-bold".into()]);
+    // 终端等宽族：JetBrains Mono 打头
+    if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
+        mono.insert(0, "jbmono".into());
+    }
+
     let load = |path: &str| -> Option<(String, Vec<u8>)> {
         std::fs::read(path).ok().map(|data| {
             let name = path
@@ -46,22 +67,22 @@ fn setup_fonts(ctx: &egui::Context) {
         })
     };
 
-    // UI 拉丁字体：Segoe UI 放最前（替换默认的 Ubuntu-Light）
+    // UI 拉丁字体：Segoe UI 放最前
     if let Some((name, data)) = load(r"C:\Windows\Fonts\segoeui.ttf") {
         fonts
             .font_data
             .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-        if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        if let Some(prop) = fonts.families.get_mut(&FontFamily::Proportional) {
             prop.insert(0, name);
         }
     }
-    // 终端等宽字体：Consolas 放最前
+    // 终端等宽兜底：Consolas
     if let Some((name, data)) = load(r"C:\Windows\Fonts\consola.ttf") {
         fonts
             .font_data
             .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-        if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-            mono.insert(0, name);
+        if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
+            mono.push(name);
         }
     }
     // CJK 兜底链：微软雅黑 → DengXian → SimHei
@@ -74,10 +95,7 @@ fn setup_fonts(ctx: &egui::Context) {
             fonts
                 .font_data
                 .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-            for family in [
-                egui::FontFamily::Monospace,
-                egui::FontFamily::Proportional,
-            ] {
+            for family in [FontFamily::Monospace, FontFamily::Proportional] {
                 if let Some(list) = fonts.families.get_mut(&family) {
                     list.push(name.clone());
                 }

@@ -188,6 +188,7 @@ fn find_in_path(name: &str, ext: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alacritty_terminal::grid::Dimensions;
 
     /// npm 垫片（claude.cmd）应被 cmd.exe /C 包装。
     #[cfg(windows)]
@@ -273,6 +274,52 @@ mod tests {
         assert!(
             lines.iter().any(|l| !l.trim().is_empty()),
             "闭环 4 秒后网格仍全空"
+        );
+        drop(handle);
+    }
+
+    /// claude 经完整闭环（PTY→alacritty→应答）后，网格是否被其 TUI 占满。
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn claude_through_terminal() {
+        use crate::backend::terminal::Terminal;
+
+        let cwd = std::env::current_dir().unwrap();
+        let (mut handle, rx) = PtyHandle::spawn("claude", &[], &cwd, 30, 100).unwrap();
+        let mut term = Terminal::new(30, 100);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+        while std::time::Instant::now() < deadline {
+            for text in term.drain_pty_writes() {
+                let _ = handle.write(text.as_bytes());
+            }
+            while let Ok(chunk) = rx.try_recv() {
+                term.feed(&chunk);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let grid = term.term.grid();
+        let mut non_empty_lines = 0usize;
+        let mut total_chars = 0usize;
+        for item in grid.display_iter() {
+            if item.cell.c != ' ' {
+                non_empty_lines += 1;
+                total_chars += 1;
+            }
+        }
+        eprintln!(
+            "[claude_through_terminal] grid={}x{} 非空行={} 非空字符={}",
+            grid.columns(),
+            grid.screen_lines(),
+            non_empty_lines,
+            total_chars
+        );
+        // claude 启动后应渲染出 TUI（大量非空格）
+        assert!(
+            total_chars > 200,
+            "claude 应渲染出大量内容, 实际非空字符 {total_chars}"
         );
         drop(handle);
     }
