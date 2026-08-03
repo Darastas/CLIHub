@@ -8,15 +8,19 @@ use egui::Context;
 use crate::backend::io_loop;
 use crate::backend::pty::PtyHandle;
 use crate::backend::terminal::Terminal;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, CliEntry};
 use crate::state::{Session, SessionStatus};
 use crate::ui::{sidebar, terminal};
 
 pub struct HubApp {
-    #[allow(dead_code)] // Phase 2+ 用于新增/编辑 CLI
     config: AppConfig,
     sessions: Vec<Session>,
     selected: usize,
+    // 新增会话对话框状态
+    adding_cli: bool,
+    new_name: String,
+    new_command: String,
+    new_cwd: String,
 }
 
 fn home_dir() -> PathBuf {
@@ -95,6 +99,10 @@ impl HubApp {
             config,
             sessions,
             selected: 0,
+            adding_cli: false,
+            new_name: String::new(),
+            new_command: String::new(),
+            new_cwd: String::new(),
         };
         // 自动启动首个可用的终端会话，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -106,6 +114,57 @@ impl HubApp {
 
     fn find_terminal_index(&self) -> Option<usize> {
         self.sessions.iter().position(|s| s.name == "Terminal")
+    }
+
+    /// 把当前会话列表同步回配置并持久化。
+    fn sync_config(&mut self) {
+        self.config.clis = self
+            .sessions
+            .iter()
+            .map(|s| CliEntry {
+                name: s.name.clone(),
+                command: s.command.clone(),
+                args: Vec::new(),
+                cwd: Some(s.cwd.clone()),
+                env: Default::default(),
+            })
+            .collect();
+        if let Err(e) = self.config.save() {
+            eprintln!("[config] 保存失败: {e}");
+        }
+    }
+
+    fn add_cli(&mut self) {
+        let name = self.new_name.trim().to_string();
+        let command = self.new_command.trim().to_string();
+        if name.is_empty() || command.is_empty() {
+            return;
+        }
+        let cwd = if self.new_cwd.trim().is_empty() {
+            home_dir()
+        } else {
+            PathBuf::from(self.new_cwd.trim())
+        };
+        let idx = self.sessions.len();
+        self.sessions
+            .push(Session::new(idx, &name, &command, cwd));
+        self.selected = idx;
+        self.new_name.clear();
+        self.new_command.clear();
+        self.new_cwd.clear();
+        self.sync_config();
+    }
+
+    fn remove_session(&mut self, idx: usize) {
+        if idx >= self.sessions.len() {
+            return;
+        }
+        self.kill_session(idx);
+        self.sessions.remove(idx);
+        if self.selected >= self.sessions.len() {
+            self.selected = self.sessions.len().saturating_sub(1);
+        }
+        self.sync_config();
     }
 
     fn spawn_session(&mut self, idx: usize) {
@@ -176,18 +235,29 @@ impl HubApp {
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {
-        let mut clicked = None;
+        let mut side = sidebar::SidebarAction::default();
         egui::Panel::left("sidebar")
             .resizable(false)
             .exact_size(232.0)
             .show(ui, |ui| {
-                clicked = sidebar::show(ui, &self.sessions, self.selected);
+                side = sidebar::show(ui, &self.sessions, self.selected);
             });
-        if let Some(idx) = clicked {
+        if let Some(idx) = side.select {
             self.selected = idx;
             if self.sessions[idx].status() == SessionStatus::Idle {
                 self.spawn_session(idx);
             }
+        }
+        if let Some(idx) = side.remove {
+            self.remove_session(idx);
+        }
+        if side.add {
+            self.adding_cli = true;
+        }
+
+        // 新增会话对话框
+        if self.adding_cli {
+            self.add_cli_dialog(ui);
         }
 
         let mut action = None;
@@ -209,6 +279,44 @@ impl HubApp {
             Some(terminal::TerminalAction::Kill) => self.kill_session(self.selected),
             Some(terminal::TerminalAction::Restart) => self.restart_session(self.selected),
             None => {}
+        }
+    }
+
+    /// 新增会话的模态小窗。
+    fn add_cli_dialog(&mut self, ui: &mut egui::Ui) {
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new("Add CLI Session")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui| {
+                ui.label("Name");
+                ui.text_edit_singleline(&mut self.new_name);
+                ui.label("Command (e.g. codex, claude, powershell.exe)");
+                ui.text_edit_singleline(&mut self.new_command);
+                ui.label("Working directory (optional)");
+                ui.text_edit_singleline(&mut self.new_cwd);
+                ui.add_space(8.0);
+                let name_ok = !self.new_name.trim().is_empty();
+                let cmd_ok = !self.new_command.trim().is_empty();
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(name_ok && cmd_ok, egui::Button::new("Add"))
+                        .clicked()
+                    {
+                        confirm = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if confirm {
+            self.add_cli();
+        }
+        if confirm || cancel {
+            self.adding_cli = false;
         }
     }
 }
