@@ -5,7 +5,7 @@
 //! - 输入：终端区获得焦点后，把 `Event::Text/Key/Paste` 转成字节流写回 PTY。
 //! - 缩放：按面板尺寸 × 字体度量计算行列数，同步 PTY 与网格。
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::EventListener;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::Term;
@@ -60,7 +60,9 @@ impl TermTheme {
     }
 }
 
-pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
+/// `input_enabled`：是否把键盘事件转发给 PTY（由 App 决定，如新增会话
+/// 对话框打开时禁止）。不依赖 egui 焦点，保证点击会话后即可打字。
+pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<TerminalAction> {
     let mut action = None;
     let theme = TermTheme::light();
     let status = session.status();
@@ -135,8 +137,8 @@ pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
     let painter = ui.painter().with_clip_rect(term_rect);
     painter.rect_filled(term_rect, 0.0, theme.background);
 
-    // 输入转发 + 滚轮
-    if focused {
+    // 输入转发（由 App 控制开关，与焦点无关）+ 滚轮
+    if input_enabled {
         forward_keys(ui, session);
     }
     handle_scroll(ui, session);
@@ -176,10 +178,10 @@ pub fn show(ui: &mut Ui, session: &mut Session) -> Option<TerminalAction> {
 // 渲染
 // ---------------------------------------------------------------------------
 
-fn paint_grid(
+fn paint_grid<T: EventListener>(
     ui: &mut Ui,
     theme: &TermTheme,
-    term: &Term<VoidListener>,
+    term: &Term<T>,
     rect: Rect,
     col_w: f32,
     row_h: f32,

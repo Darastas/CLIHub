@@ -218,6 +218,16 @@ impl HubApp {
     fn update_backend(&mut self, ctx: &Context) {
         let mut dirty = false;
         for s in &mut self.sessions {
+            // 终端需要写回 PTY 的应答（DSR 光标位置等），立即转发
+            if let Some(t) = &mut s.terminal {
+                for text in t.drain_pty_writes() {
+                    if let Some(pty) = &mut s.pty {
+                        if let Err(e) = pty.write(text.as_bytes()) {
+                            s.error = Some(format!("写回 PTY 失败: {e}"));
+                        }
+                    }
+                }
+            }
             // 拉取 PTY 输出 → 喂进 alacritty 网格
             if let Some(rx) = &s.rx {
                 if io_loop::drain(rx, &mut s.terminal) > 0 {
@@ -254,7 +264,9 @@ impl HubApp {
             });
         if let Some(idx) = side.select {
             self.selected = idx;
-            if self.sessions[idx].status() == SessionStatus::Idle {
+            // 非 Running 状态（Idle/Failed/Exited）点击即启动；
+            // 之前启动失败过的会话（如旧的 os error 193）也能重新拉起
+            if self.sessions[idx].status() != SessionStatus::Running {
                 self.spawn_session(idx);
             }
         }
@@ -271,11 +283,13 @@ impl HubApp {
         }
 
         let mut action = None;
+        // 新增会话对话框打开时禁止键盘转发（避免输入串进终端）
+        let input_enabled = !self.adding_cli;
         egui::CentralPanel::default_margins().show(ui, |ui| {
             let session = self.sessions.get_mut(self.selected);
             match session {
                 Some(session) => {
-                    action = terminal::show(ui, session);
+                    action = terminal::show(ui, session, input_enabled);
                 }
                 None => {
                     ui.centered_and_justified(|ui| {
