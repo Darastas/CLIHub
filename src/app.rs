@@ -108,20 +108,38 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// 依据主题构建整个应用的 egui 视觉（侧边栏/标题栏/面板/对话框）。
+fn app_visuals(dark: bool) -> egui::Visuals {
+    let mut v = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    if dark {
+        v.panel_fill = Color32::from_rgb(30, 30, 30);
+        v.window_fill = Color32::from_rgb(38, 38, 38);
+        v.selection.bg_fill = Color32::from_rgb(45, 70, 120);
+        v.selection.stroke = egui::Stroke::NONE;
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(45, 45, 45);
+        v.widgets.hovered.bg_fill = Color32::from_rgb(50, 50, 50);
+    } else {
+        v.panel_fill = Color32::from_rgb(247, 248, 250);
+        v.window_fill = Color32::from_rgb(250, 251, 252);
+        v.selection.bg_fill = Color32::from_rgb(228, 230, 234);
+        v.selection.stroke = egui::Stroke::NONE;
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(237, 239, 242);
+        v.widgets.hovered.bg_fill = Color32::from_rgb(237, 239, 242);
+    }
+    v
+}
+
 impl HubApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // 目标视觉是白/浅灰极简风格：面板浅灰、选中中性灰、无描边
-        let mut visuals = egui::Visuals::light();
-        visuals.panel_fill = Color32::from_rgb(247, 248, 250);
-        visuals.window_fill = Color32::from_rgb(250, 251, 252);
-        visuals.selection.bg_fill = Color32::from_rgb(228, 230, 234);
-        visuals.selection.stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(237, 239, 242);
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(237, 239, 242);
-        cc.egui_ctx.set_visuals(visuals);
+        // 整体主题（侧边栏/标题栏/面板/对话框一并切换）
+        let config = AppConfig::load();
+        cc.egui_ctx.set_visuals(app_visuals(config.theme.dark));
         setup_fonts(&cc.egui_ctx);
 
-        let config = AppConfig::load();
         let initial_theme = config.theme.clone();
         let sessions: Vec<Session> = config
             .clis
@@ -445,8 +463,9 @@ impl HubApp {
             });
 
         if changed {
-            // 实时应用 + 持久化
+            // 实时应用整体主题 + 持久化
             self.config.theme = self.settings_draft.clone();
+            ui.ctx().set_visuals(app_visuals(self.settings_draft.dark));
             let _ = self.config.save();
         }
         if close {

@@ -38,21 +38,32 @@ pub fn show(ui: &mut Ui) {
     }
 
     // 左上角应用名
+    let dark = ui.visuals().dark_mode;
+    let title_color = if dark {
+        Color32::from_gray(220)
+    } else {
+        Color32::from_gray(50)
+    };
     ui.painter().text(
         Pos2::new(rect.min.x + 14.0, rect.center().y),
         Align2::LEFT_CENTER,
         "AI CLI Hub",
         FontId::proportional(12.5),
-        Color32::from_gray(50),
+        title_color,
     );
 
     // 底部细分隔线
+    let border = if dark {
+        Color32::from_rgb(55, 55, 55)
+    } else {
+        Color32::from_rgb(229, 231, 235)
+    };
     ui.painter().line_segment(
         [
             Pos2::new(rect.min.x, rect.bottom()),
             Pos2::new(rect.right(), rect.bottom()),
         ],
-        Stroke::new(1.0, Color32::from_rgb(229, 231, 235)),
+        Stroke::new(1.0, border),
     );
 
     // 右上角三个控件（从右到左：关闭 / 最大化 / 最小化）
@@ -85,12 +96,18 @@ fn draw_caption_button(ui: &mut Ui, titlebar: Rect, x: f32, icon: CaptionIcon) -
     let btn = ui.interact(btn_rect, Id::new(("caption", x as u32)), Sense::click());
     let hovered = btn.hovered();
     let is_close = matches!(icon, CaptionIcon::Close);
+    let dark = ui.visuals().dark_mode;
 
-    // 悬浮背景：关闭键红色，其余浅灰
+    // 悬浮背景：关闭键红色，其余灰
+    let hover_bg = if dark {
+        Color32::from_rgb(60, 60, 60)
+    } else {
+        Color32::from_rgb(229, 231, 235)
+    };
     let bg = if hovered && is_close {
         Color32::from_rgb(196, 43, 28)
     } else if hovered {
-        Color32::from_rgb(229, 231, 235)
+        hover_bg
     } else {
         Color32::TRANSPARENT
     };
@@ -98,9 +115,11 @@ fn draw_caption_button(ui: &mut Ui, titlebar: Rect, x: f32, icon: CaptionIcon) -
         ui.painter().rect_filled(btn_rect, 0.0, bg);
     }
 
-    // 图标颜色：关闭键悬浮时为白，其余深灰
+    // 图标颜色：关闭键悬浮时为白，其余灰
     let fg = if hovered && is_close {
         Color32::WHITE
+    } else if dark {
+        Color32::from_gray(200)
     } else {
         Color32::from_gray(70)
     };

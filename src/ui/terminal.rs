@@ -124,11 +124,21 @@ pub fn show(
     let interactive = session.is_interactive();
 
     // ---- 顶部信息栏 ----
+    let header_name_color = if theme.is_dark() {
+        Color32::from_rgb(220, 220, 220)
+    } else {
+        Color32::from_rgb(55, 65, 81)
+    };
+    let header_muted = if theme.is_dark() {
+        Color32::from_gray(150)
+    } else {
+        Color32::from_gray(150)
+    };
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(&session.name)
                 .size(13.5)
-                .color(Color32::from_rgb(55, 65, 81)),
+                .color(header_name_color),
         );
         let status_text = match status {
             SessionStatus::Running => "running",
@@ -144,7 +154,7 @@ pub fn show(
         ui.label(
             RichText::new(session.cwd.display().to_string())
                 .size(11.0)
-                .color(Color32::from_gray(150)),
+                .color(header_muted),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
