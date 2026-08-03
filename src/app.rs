@@ -3,12 +3,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use egui::{Color32, Context};
+use egui::{Color32, Context, RichText};
 
 use crate::backend::io_loop;
 use crate::backend::pty::PtyHandle;
 use crate::backend::terminal::Terminal;
-use crate::config::{AppConfig, CliEntry};
+use crate::config::{AppConfig, CliEntry, ThemeSettings};
 use crate::state::{Session, SessionStatus};
 use crate::ui::{sidebar, terminal, titlebar};
 
@@ -21,6 +21,9 @@ pub struct HubApp {
     new_name: String,
     new_command: String,
     new_cwd: String,
+    // 设置窗口状态
+    show_settings: bool,
+    settings_draft: ThemeSettings,
 }
 
 fn home_dir() -> PathBuf {
@@ -119,6 +122,7 @@ impl HubApp {
         setup_fonts(&cc.egui_ctx);
 
         let config = AppConfig::load();
+        let initial_theme = config.theme.clone();
         let sessions: Vec<Session> = config
             .clis
             .iter()
@@ -137,6 +141,8 @@ impl HubApp {
             new_name: String::new(),
             new_command: String::new(),
             new_cwd: String::new(),
+            show_settings: false,
+            settings_draft: initial_theme,
         };
         // 自动启动首个可用的终端会话，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -303,20 +309,33 @@ impl HubApp {
         if side.add {
             self.adding_cli = true;
         }
+        if let Some((from, to)) = side.move_to {
+            self.reorder_session(from, to);
+        }
+        if side.settings {
+            self.settings_draft = self.config.theme.clone();
+            self.show_settings = true;
+        }
 
         // 新增会话对话框
         if self.adding_cli {
             self.add_cli_dialog(ui);
         }
+        // 设置窗口
+        if self.show_settings {
+            self.settings_window(ui);
+        }
 
         let mut action = None;
-        // 新增会话对话框打开时禁止键盘转发（避免输入串进终端）
-        let input_enabled = !self.adding_cli;
+        // 弹窗打开时禁止键盘转发（避免输入串进终端）
+        let input_enabled = !self.adding_cli && !self.show_settings;
+        // 终端主题（按配置构建一次）
+        let theme = self.build_theme();
         egui::CentralPanel::default_margins().show(ui, |ui| {
             let session = self.sessions.get_mut(self.selected);
             match session {
                 Some(session) => {
-                    action = terminal::show(ui, session, input_enabled);
+                    action = terminal::show(ui, session, input_enabled, &theme);
                 }
                 None => {
                     ui.centered_and_justified(|ui| {
@@ -330,6 +349,108 @@ impl HubApp {
             Some(terminal::TerminalAction::Kill) => self.kill_session(self.selected),
             Some(terminal::TerminalAction::Restart) => self.restart_session(self.selected),
             None => {}
+        }
+    }
+
+    /// 拖拽排序会话：把 from 移到 to。
+    fn reorder_session(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.sessions.len() || to >= self.sessions.len() {
+            return;
+        }
+        let s = self.sessions.remove(from);
+        self.sessions.insert(to, s);
+        // 修正选中索引
+        if self.selected == from {
+            self.selected = to;
+        } else if from < to {
+            if self.selected > from && self.selected <= to {
+                self.selected -= 1;
+            }
+        } else {
+            if self.selected >= to && self.selected < from {
+                self.selected += 1;
+            }
+        }
+        self.sync_config();
+    }
+
+    /// 依据配置构建终端主题。
+    fn build_theme(&self) -> terminal::TermTheme {
+        let settings = &self.config.theme;
+        let mut theme = if settings.dark {
+            terminal::TermTheme::dark()
+        } else {
+            terminal::TermTheme::light()
+        };
+        theme.apply(settings);
+        theme
+    }
+
+    /// 设置窗口：主题预设 + 自定义背景/前景色。
+    fn settings_window(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
+        let mut close = false;
+        egui::Window::new("Settings")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui| {
+                ui.label(RichText::new("Terminal theme").size(12.0));
+                ui.horizontal(|ui| {
+                    if ui
+                        .radio(!self.settings_draft.dark, "Light")
+                        .clicked()
+                    {
+                        self.settings_draft.dark = false;
+                        changed = true;
+                    }
+                    if ui.radio(self.settings_draft.dark, "Dark").clicked() {
+                        self.settings_draft.dark = true;
+                        changed = true;
+                    }
+                });
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                // 预设底色/前景（按当前 dark 预设取）
+                let (preset_bg, preset_fg) = if self.settings_draft.dark {
+                    ([30, 30, 30], [212, 212, 212])
+                } else {
+                    ([255, 255, 255], [31, 35, 40])
+                };
+                let mut bg = self.settings_draft.background.unwrap_or(preset_bg);
+                let mut fg = self.settings_draft.foreground.unwrap_or(preset_fg);
+
+                ui.label("Background");
+                if ui.color_edit_button_srgb(&mut bg).changed() {
+                    self.settings_draft.background = Some(bg);
+                    changed = true;
+                }
+                ui.label("Foreground");
+                if ui.color_edit_button_srgb(&mut fg).changed() {
+                    self.settings_draft.foreground = Some(fg);
+                    changed = true;
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Reset").clicked() {
+                        self.settings_draft = ThemeSettings::default();
+                        changed = true;
+                    }
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+
+        if changed {
+            // 实时应用 + 持久化
+            self.config.theme = self.settings_draft.clone();
+            let _ = self.config.save();
+        }
+        if close {
+            self.show_settings = false;
         }
     }
 

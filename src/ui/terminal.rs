@@ -63,13 +63,63 @@ impl TermTheme {
             ],
         }
     }
+
+    /// 暗色主题：白底看不清浅色字的问题，用暗底 + 亮色 ANSI 解决。
+    pub fn dark() -> Self {
+        Self {
+            font_size: 15.0,
+            font_family: egui::FontFamily::Monospace,
+            bold_family: egui::FontFamily::Name("jbmono-bold".into()),
+            background: Color32::from_rgb(30, 30, 30),
+            foreground: Color32::from_rgb(212, 212, 212),
+            cursor: Color32::from_rgb(174, 175, 173),
+            ansi: [
+                Color32::from_rgb(0, 0, 0),       // black
+                Color32::from_rgb(205, 49, 49),   // red
+                Color32::from_rgb(13, 188, 121),  // green
+                Color32::from_rgb(229, 229, 16),  // yellow
+                Color32::from_rgb(36, 114, 200),  // blue
+                Color32::from_rgb(188, 63, 188),  // magenta
+                Color32::from_rgb(17, 168, 205),  // cyan
+                Color32::from_rgb(229, 229, 229), // white
+                Color32::from_rgb(102, 102, 102), // bright black
+                Color32::from_rgb(241, 76, 76),   // bright red
+                Color32::from_rgb(35, 209, 139),  // bright green
+                Color32::from_rgb(245, 245, 67),  // bright yellow
+                Color32::from_rgb(59, 142, 234),  // bright blue
+                Color32::from_rgb(214, 112, 214), // bright magenta
+                Color32::from_rgb(41, 184, 219),  // bright cyan
+                Color32::from_rgb(255, 255, 255), // bright white
+            ],
+        }
+    }
+
+    /// 应用自定义颜色覆盖。
+    pub fn apply(&mut self, settings: &crate::config::ThemeSettings) {
+        if let Some([r, g, b]) = settings.background {
+            self.background = Color32::from_rgb(r, g, b);
+        }
+        if let Some([r, g, b]) = settings.foreground {
+            self.foreground = Color32::from_rgb(r, g, b);
+        }
+    }
+
+    /// 终端是否为暗底（用于派生提示条等颜色）。
+    pub fn is_dark(&self) -> bool {
+        self.background.r() < 128 && self.background.g() < 128 && self.background.b() < 128
+    }
 }
 
 /// `input_enabled`：是否把键盘事件转发给 PTY（由 App 决定，如新增会话
 /// 对话框打开时禁止）。不依赖 egui 焦点，保证点击会话后即可打字。
-pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<TerminalAction> {
+/// `theme`：终端配色（由 App 按配置构建）。
+pub fn show(
+    ui: &mut Ui,
+    session: &mut Session,
+    input_enabled: bool,
+    theme: &TermTheme,
+) -> Option<TerminalAction> {
     let mut action = None;
-    let theme = TermTheme::light();
     let status = session.status();
     let interactive = session.is_interactive();
 
@@ -161,10 +211,15 @@ pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<T
     // 背景 + 细边框
     let painter = ui.painter().with_clip_rect(term_rect);
     painter.rect_filled(term_rect, 0.0, theme.background);
+    let border = if theme.is_dark() {
+        Color32::from_rgb(50, 50, 50)
+    } else {
+        Color32::from_rgb(229, 231, 235)
+    };
     painter.rect_stroke(
         term_rect,
         0.0,
-        egui::Stroke::new(1.0, Color32::from_rgb(229, 231, 235)),
+        egui::Stroke::new(1.0, border),
         egui::StrokeKind::Inside,
     );
 
@@ -193,13 +248,18 @@ pub fn show(ui: &mut Ui, session: &mut Session, input_enabled: bool) -> Option<T
 
     // ---- 底部快捷提示条 ----
     let (hint_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), HINT_H), Sense::hover());
-    ui.painter().rect_filled(hint_rect, 0.0, Color32::from_rgb(247, 248, 250));
+    let (hint_bg, hint_fg) = if theme.is_dark() {
+        (Color32::from_rgb(40, 40, 40), Color32::from_gray(140))
+    } else {
+        (Color32::from_rgb(247, 248, 250), Color32::from_gray(150))
+    };
+    ui.painter().rect_filled(hint_rect, 0.0, hint_bg);
     ui.painter().text(
         Pos2::new(hint_rect.min.x + 10.0, hint_rect.center().y),
         Align2::LEFT_CENTER,
         "click terminal to type · Ctrl+C interrupt · wheel scrolls history · ? for shortcuts",
         FontId::proportional(10.5),
-        Color32::from_gray(150),
+        hint_fg,
     );
 
     action

@@ -26,17 +26,44 @@ pub struct CliEntry {
     pub env: BTreeMap<String, String>,
 }
 
+/// 终端主题设置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeSettings {
+    /// 暗色主题预设
+    #[serde(default)]
+    pub dark: bool,
+    /// 自定义背景色（覆盖预设）
+    #[serde(default)]
+    pub background: Option<[u8; 3]>,
+    /// 自定义前景色（覆盖预设）
+    #[serde(default)]
+    pub foreground: Option<[u8; 3]>,
+}
+
+impl Default for ThemeSettings {
+    fn default() -> Self {
+        Self {
+            dark: false,
+            background: None,
+            foreground: None,
+        }
+    }
+}
+
 /// 整个应用的配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "default_entries")]
     pub clis: Vec<CliEntry>,
+    #[serde(default)]
+    pub theme: ThemeSettings,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             clis: default_entries(),
+            theme: ThemeSettings::default(),
         }
     }
 }
