@@ -10,8 +10,7 @@ use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
-use egui::text::{LayoutJob, TextFormat};
-use egui::{Align2, Color32, FontId, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
+use egui::{Align2, Color32, FontId, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
 
 use crate::state::Session;
 
@@ -208,26 +207,19 @@ fn paint_grid<T: EventListener>(
     for (li, cells) in lines.iter().enumerate() {
         let y = origin.y + li as f32 * row_h;
 
+        // 1) 背景 run（连续同色合并）
         let mut runs: Vec<(usize, usize, Color32)> = Vec::new();
-        let mut job = LayoutJob::default();
-        job.wrap.max_width = f32::INFINITY;
-        let mut has_bold = false;
-
         for (ci, cell) in cells.iter().enumerate() {
             let flags = cell.flags;
-            // 宽字符第二列占位格，不单独渲染
             if flags.contains(Flags::WIDE_CHAR_SPACER) {
                 continue;
             }
-            let wide = flags.contains(Flags::WIDE_CHAR);
-            let width = if wide { 2 } else { 1 };
-
-            let (mut fg, mut bg) = resolve_cell(cell, colors, theme);
-            if flags.contains(Flags::INVERSE) {
-                std::mem::swap(&mut fg, &mut bg);
-            }
-
-            // 背景色块：与前一格同色则延伸
+            let width = if flags.contains(Flags::WIDE_CHAR) {
+                2
+            } else {
+                1
+            };
+            let (_fg, bg) = resolve_cell(cell, colors, theme);
             if bg != theme.background {
                 let mut merged = false;
                 if let Some((_, e, c)) = runs.last_mut() {
@@ -240,45 +232,56 @@ fn paint_grid<T: EventListener>(
                     runs.push((ci, ci + width, bg));
                 }
             }
+        }
 
-            // 文本
-            let is_bold = flags.contains(Flags::BOLD);
-            if is_bold {
-                has_bold = true;
+        // 2) 文本 span（连续非空格、同色、同粗体 → 一个 painter.text）
+        let mut spans: Vec<(usize, String, Color32, bool)> = Vec::new();
+        let mut cur_start: Option<usize> = None;
+        let mut cur_str = String::new();
+        let mut cur_color = Color32::TRANSPARENT;
+        let mut cur_bold = false;
+        for (ci, cell) in cells.iter().enumerate() {
+            let flags = cell.flags;
+            if flags.contains(Flags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            let (mut fg, bg) = resolve_cell(cell, colors, theme);
+            if flags.contains(Flags::INVERSE) {
+                fg = bg;
             }
             let dim = flags.contains(Flags::DIM);
+            let mut color = fg;
+            if dim {
+                color = Color32::from_rgb(fg.r() / 2, fg.g() / 2, fg.b() / 2);
+            }
+            let is_bold = flags.contains(Flags::BOLD);
             let ch = if flags.contains(Flags::HIDDEN) {
                 ' '
             } else {
                 cell.c
             };
-            let mut color = fg;
-            if dim {
-                color = Color32::from_rgb(fg.r() / 2, fg.g() / 2, fg.b() / 2);
+            if ch == ' ' {
+                if let Some(sc) = cur_start.take() {
+                    spans.push((sc, std::mem::take(&mut cur_str), cur_color, cur_bold));
+                }
+                cur_color = Color32::TRANSPARENT;
+                continue;
             }
-            job.append(
-                &ch.to_string(),
-                0.0,
-                TextFormat {
-                    font_id: FontId::monospace(theme.font_size),
-                    color,
-                    underline: if flags.contains(Flags::UNDERLINE) {
-                        Stroke::new(1.0, color)
-                    } else {
-                        Stroke::NONE
-                    },
-                    strikethrough: if flags.contains(Flags::STRIKEOUT) {
-                        Stroke::new(1.0, color)
-                    } else {
-                        Stroke::NONE
-                    },
-                    line_height: Some(row_h),
-                    ..Default::default()
-                },
-            );
+            if cur_start.is_none() || cur_color != color || cur_bold != is_bold {
+                if let Some(sc) = cur_start.take() {
+                    spans.push((sc, std::mem::take(&mut cur_str), cur_color, cur_bold));
+                }
+                cur_start = Some(ci);
+                cur_color = color;
+                cur_bold = is_bold;
+            }
+            cur_str.push(ch);
+        }
+        if let Some(sc) = cur_start.take() {
+            spans.push((sc, cur_str, cur_color, cur_bold));
         }
 
-        // 画背景
+        // 3) 画背景
         for (s, e, c) in &runs {
             let x0 = origin.x + *s as f32 * col_w;
             let x1 = origin.x + *e as f32 * col_w;
@@ -289,13 +292,20 @@ fn paint_grid<T: EventListener>(
             );
         }
 
-        // 画文字
-        if !job.sections.is_empty() {
-            let galley = ui.fonts_mut(|f| f.layout_job(job));
-            painter.galley(Pos2::new(origin.x, y), galley.clone(), theme.foreground);
-            if has_bold {
-                // 简易伪粗体：同 galley 偏移 1px 再画一遍
-                painter.galley(Pos2::new(origin.x + 1.0, y), galley, theme.foreground);
+        // 4) 画文字（painter.text 经实测可渲染）
+        let font_id = FontId::monospace(theme.font_size);
+        for (start, text, color, bold) in &spans {
+            let pos = Pos2::new(origin.x + *start as f32 * col_w, y);
+            painter.text(pos, Align2::LEFT_TOP, text.as_str(), font_id.clone(), *color);
+            if *bold {
+                // 简易伪粗体：偏移 1px 再画一遍
+                painter.text(
+                    Pos2::new(pos.x + 1.0, y),
+                    Align2::LEFT_TOP,
+                    text.as_str(),
+                    font_id.clone(),
+                    *color,
+                );
             }
         }
     }

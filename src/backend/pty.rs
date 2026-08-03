@@ -16,6 +16,9 @@ pub struct PtyHandle {
     pub child: Box<dyn Child + Send + Sync>,
     /// 进程存活标志；reader 线程在 EOF/出错时置为 false
     pub alive: Arc<AtomicBool>,
+    /// 上次 resize 的行列，防重复触发 ConPTY 重绘
+    cols: u16,
+    rows: u16,
 }
 
 impl PtyHandle {
@@ -85,6 +88,8 @@ impl PtyHandle {
                 writer,
                 child,
                 alive,
+                cols,
+                rows,
             },
             rx,
         ))
@@ -96,8 +101,17 @@ impl PtyHandle {
         self.writer.flush()
     }
 
-    /// 调整窗口行列数。
-    pub fn resize(&mut self, rows: u16, cols: u16) {
+    /// 调整窗口行列数；尺寸未变化时跳过，避免每帧重复 resize
+    /// 触发 ConPTY 反复重绘（表现为海量 `ESC[K` 清屏指令）。
+    pub fn resize(&mut self, cols: u16, rows: u16) {
+        if cols == 0 || rows == 0 {
+            return;
+        }
+        if self.cols == cols && self.rows == rows {
+            return;
+        }
+        self.cols = cols;
+        self.rows = rows;
         let _ = self.master.resize(PtySize {
             rows,
             cols,
@@ -196,6 +210,71 @@ mod tests {
         let (program, args) = resolve_command("cmd", &[]);
         assert!(program.to_lowercase().ends_with("cmd.exe"));
         assert!(args.is_empty());
+    }
+
+    /// cmd.exe 经 PTY 是否产出原始字节流（诊断：上层网格空白时定位）。
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn cmd_raw_output() {
+        let cwd = std::env::current_dir().unwrap();
+        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80).expect("spawn cmd");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let mut all = Vec::new();
+        while let Ok(chunk) = rx.try_recv() {
+            all.extend_from_slice(&chunk);
+        }
+        eprintln!(
+            "[cmd_raw_output] {} bytes: {:?}",
+            all.len(),
+            String::from_utf8_lossy(&all)
+        );
+        drop(handle);
+    }
+
+    /// 完整闭环：spawn cmd → 应答 DSR → 网格应出现 banner/prompt。
+    /// 复现 app 的 update_backend 逻辑。
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn cmd_through_terminal() {
+        use crate::backend::terminal::Terminal;
+
+        let cwd = std::env::current_dir().unwrap();
+        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80).unwrap();
+        let mut term = Terminal::new(24, 80);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        let mut writes_roundtripped = 0usize;
+        while std::time::Instant::now() < deadline {
+            for text in term.drain_pty_writes() {
+                writes_roundtripped += 1;
+                let _ = handle.write(text.as_bytes());
+            }
+            while let Ok(chunk) = rx.try_recv() {
+                term.feed(&chunk);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        eprintln!("[cmd_through_terminal] 应答了 {writes_roundtripped} 次 pty_write");
+
+        let grid = term.term.grid();
+        let mut lines: Vec<String> = Vec::new();
+        for item in grid.display_iter() {
+            let li = item.point.line.0 as usize;
+            if li >= lines.len() {
+                lines.resize(li + 1, String::new());
+            }
+            lines[li].push(item.cell.c);
+        }
+        for (i, l) in lines.iter().take(6).enumerate() {
+            eprintln!("[cmd_through_terminal] 行 {i}: {:?}", l);
+        }
+        assert!(
+            lines.iter().any(|l| !l.trim().is_empty()),
+            "闭环 4 秒后网格仍全空"
+        );
+        drop(handle);
     }
 
     /// 真实 spawn 一次 `claude`：不应再报 os error 193，且能保持运行。
