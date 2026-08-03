@@ -10,15 +10,19 @@ use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
-use egui::{Align2, Color32, FontId, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
+use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
 
-use crate::state::{Session, SessionStatus};
+use crate::state::{Session, TerminalInstance};
 
-/// 主区域顶部按钮可能触发的动作，由 App 层执行。
+/// 标签栏/终端区触发的动作，由 App 层执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalAction {
-    Restart,
-    Kill,
+    /// 为当前会话新开一个实例（标签页）
+    NewTab,
+    /// 切换到某个标签页
+    SwitchTab(usize),
+    /// 关闭并移除某个标签页
+    KillTab(usize),
 }
 
 /// 终端配色主题（浅色）。
@@ -41,37 +45,37 @@ impl TermTheme {
             font_family: egui::FontFamily::Monospace,
             bold_family: egui::FontFamily::Name("jbmono-bold".into()),
             background: Color32::from_rgb(255, 255, 255),
-            foreground: Color32::from_rgb(31, 35, 40),
-            cursor: Color32::from_rgb(9, 105, 218),
+            foreground: Color32::from_rgb(71, 85, 105), // Slate 600
+            cursor: Color32::from_rgb(99, 102, 241), // Indigo 500
             ansi: [
-                Color32::from_rgb(31, 35, 40),    // black
-                Color32::from_rgb(194, 59, 34),   // red
-                Color32::from_rgb(26, 127, 55),   // green
-                Color32::from_rgb(154, 103, 0),   // yellow
-                Color32::from_rgb(9, 105, 218),   // blue
-                Color32::from_rgb(130, 80, 223),  // magenta
-                Color32::from_rgb(27, 124, 131),  // cyan
-                Color32::from_rgb(110, 119, 129), // white
-                Color32::from_rgb(87, 96, 106),   // bright black
-                Color32::from_rgb(229, 83, 75),   // bright red
-                Color32::from_rgb(45, 164, 78),   // bright green
-                Color32::from_rgb(191, 135, 0),   // bright yellow
-                Color32::from_rgb(9, 105, 218),   // bright blue
-                Color32::from_rgb(191, 57, 137),  // bright magenta
-                Color32::from_rgb(49, 146, 170),  // bright cyan
-                Color32::from_rgb(175, 184, 193), // bright white
+                Color32::from_rgb(30, 41, 59),    // black
+                Color32::from_rgb(239, 68, 68),   // red
+                Color32::from_rgb(34, 197, 94),   // green
+                Color32::from_rgb(234, 179, 8),   // yellow
+                Color32::from_rgb(59, 130, 246),  // blue
+                Color32::from_rgb(168, 85, 247),  // magenta
+                Color32::from_rgb(6, 182, 212),   // cyan
+                Color32::from_rgb(148, 163, 184), // white
+                Color32::from_rgb(100, 116, 139), // bright black
+                Color32::from_rgb(248, 113, 113), // bright red
+                Color32::from_rgb(74, 222, 128),  // bright green
+                Color32::from_rgb(253, 224, 71),  // bright yellow
+                Color32::from_rgb(96, 165, 250),  // bright blue
+                Color32::from_rgb(192, 132, 252), // bright magenta
+                Color32::from_rgb(34, 211, 238),  // bright cyan
+                Color32::from_rgb(203, 213, 225), // bright white
             ],
         }
     }
 
-    /// 暗色主题：白底看不清浅色字的问题，用暗底 + 亮色 ANSI 解决。
+    /// 暗色主题：VS Code 风格中性深灰，不偏色，最能承载 ANSI 彩色输出。
     pub fn dark() -> Self {
         Self {
             font_size: 15.0,
             font_family: egui::FontFamily::Monospace,
             bold_family: egui::FontFamily::Name("jbmono-bold".into()),
-            background: Color32::from_rgb(30, 30, 30),
-            foreground: Color32::from_rgb(212, 212, 212),
+            background: Color32::from_rgb(30, 30, 30),    // #1E1E1E
+            foreground: Color32::from_rgb(212, 212, 212), // #D4D4D4
             cursor: Color32::from_rgb(174, 175, 173),
             ansi: [
                 Color32::from_rgb(0, 0, 0),       // black
@@ -120,63 +124,35 @@ pub fn show(
     theme: &TermTheme,
 ) -> Option<TerminalAction> {
     let mut action = None;
-    let status = session.status();
-    let interactive = session.is_interactive();
 
-    // ---- 顶部信息栏 ----
-    let header_name_color = if theme.is_dark() {
-        Color32::from_rgb(220, 220, 220)
-    } else {
-        Color32::from_rgb(55, 65, 81)
-    };
-    let header_muted = if theme.is_dark() {
-        Color32::from_gray(150)
-    } else {
-        Color32::from_gray(150)
-    };
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(&session.name)
-                .size(13.5)
-                .color(header_name_color),
-        );
-        let status_text = match status {
-            SessionStatus::Running => "running",
-            SessionStatus::Idle => "idle",
-            SessionStatus::Exited => "exited",
-            SessionStatus::Failed => "failed",
-        };
-        ui.label(
-            RichText::new(status_text)
-                .size(11.0)
-                .color(super::status_color(status)),
-        );
-        ui.label(
-            RichText::new(session.cwd.display().to_string())
-                .size(11.0)
-                .color(header_muted),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .add_enabled(
-                    session.pty.is_some(),
-                    egui::Button::new("✕ Kill").small(),
-                )
-                .on_hover_text("Kill this session")
-                .clicked()
-            {
-                action = Some(TerminalAction::Kill);
-            }
-            if ui
-                .add_enabled(!interactive, egui::Button::new("↻ Restart").small())
-                .on_hover_text("Restart this session")
-                .clicked()
-            {
-                action = Some(TerminalAction::Restart);
-            }
+    // ---- 标签栏（Tab Bar，类似 Chrome/VS Code）----
+    let tab_h = 32.0;
+    ui.add_space(10.0);
+    egui::ScrollArea::horizontal()
+        .max_height(tab_h + 6.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                for ti in 0..session.tabs.len() {
+                    let is_active = ti == session.active_tab;
+                    if let Some(a) = draw_tab(ui, session, ti, is_active, theme) {
+                        action = Some(a);
+                    }
+                    ui.add_space(4.0);
+                }
+                // 新增实例
+                let plus = egui::Button::new(RichText::new("＋").size(15.0)).frame(false);
+                if ui
+                    .add(plus)
+                    .on_hover_text("Start a new instance")
+                    .clicked()
+                {
+                    action = Some(TerminalAction::NewTab);
+                }
+            });
         });
-    });
-    ui.add_space(2.0);
+    ui.add_space(6.0);
     ui.separator();
 
     // ---- 错误提示 ----
@@ -190,85 +166,95 @@ pub fn show(
     let (col_w, row_h) = ui.fonts_mut(|f| (f.glyph_width(&font_id, ' '), f.row_height(&font_id)));
 
     // ---- 终端区域 ----
-    const PAD_X: f32 = 8.0;
-    const HINT_H: f32 = 24.0;
+    const PAD_X: f32 = 12.0;
+    const HINT_H: f32 = 28.0;
     let term_size = vec2(
-        ui.available_width(),
-        (ui.available_height() - HINT_H).max(60.0),
+        ui.available_width() - 24.0, // 外边距
+        (ui.available_height() - HINT_H - 12.0).max(60.0),
     );
-    let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click());
-    if resp.clicked() {
-        resp.request_focus();
-    }
-    let focused = resp.has_focus();
-
-    // 网格可用区域：左右留 8px 内边距，顶部留 6px
-    let grid_rect = Rect::from_min_max(
-        term_rect.min + vec2(PAD_X, 6.0),
-        term_rect.max - vec2(PAD_X, 2.0),
-    );
-
-    // 按网格可用尺寸换算行列数并同步
-    let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
-    let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
-    if let Some(t) = &mut session.terminal {
-        t.resize(cols, rows);
-    }
-    if let Some(p) = &mut session.pty {
-        p.resize(cols, rows);
-    }
-
-    // 背景 + 细边框
-    let painter = ui.painter().with_clip_rect(term_rect);
-    painter.rect_filled(term_rect, 0.0, theme.background);
-    let border = if theme.is_dark() {
-        Color32::from_rgb(50, 50, 50)
-    } else {
-        Color32::from_rgb(229, 231, 235)
-    };
-    painter.rect_stroke(
-        term_rect,
-        0.0,
-        egui::Stroke::new(1.0, border),
-        egui::StrokeKind::Inside,
-    );
-
-    // 输入转发（由 App 控制开关，与焦点无关）+ 滚轮
-    if input_enabled {
-        forward_keys(ui, session);
-    }
-    handle_scroll(ui, session);
-
-    // 渲染网格
-    match &session.terminal {
-        Some(t) => {
-            paint_grid(ui, &theme, &t.term, grid_rect, col_w, row_h, cols, rows, focused);
+    
+    ui.horizontal(|ui| {
+        ui.add_space(12.0); // 左外边距
+        let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click());
+        if resp.clicked() {
+            resp.request_focus();
         }
-        None if session.error.is_none() => {
+        let focused = resp.has_focus();
+
+        // 网格可用区域：内边距
+        let grid_rect = Rect::from_min_max(
+            term_rect.min + vec2(PAD_X, 8.0),
+            term_rect.max - vec2(PAD_X, 8.0),
+        );
+
+        // 背景 + 圆角
+        let painter = ui.painter().with_clip_rect(term_rect);
+        painter.rect_filled(term_rect, 10.0, theme.background);
+
+        let border = if theme.is_dark() {
+            Color32::from_rgb(60, 60, 60)
+        } else {
+            Color32::from_rgb(226, 232, 240)
+        };
+        let stroke = if focused {
+            egui::Stroke::new(1.5, theme.cursor)
+        } else {
+            egui::Stroke::new(1.0, border)
+        };
+        painter.rect_stroke(term_rect, 10.0, stroke, egui::StrokeKind::Inside);
+
+        // 激活标签页
+        let active_tab = session.active_tab;
+        let Some(tab) = session.tabs.get_mut(active_tab) else {
             painter.text(
                 grid_rect.min + vec2(4.0, 4.0),
                 Align2::LEFT_TOP,
-                "Session not started — click a session in the sidebar, or press Restart.",
+                "No instances yet — click ＋ to start one.",
                 FontId::proportional(13.0),
-                Color32::from_gray(150),
+                theme.foreground.gamma_multiply(0.5),
             );
+            return;
+        };
+
+        // 按网格尺寸换算行列数并同步到当前标签
+        let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
+        let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
+        if let Some(t) = &mut tab.terminal {
+            t.resize(cols, rows);
         }
-        None => {}
-    }
+        if let Some(p) = &mut tab.pty {
+            p.resize(cols, rows);
+        }
+
+        // 输入转发（由 App 控制开关，与焦点无关）+ 滚轮
+        if input_enabled {
+            if let Some(err) = forward_keys(ui, tab) {
+                session.error = Some(err);
+            }
+        }
+        handle_scroll(ui, tab);
+
+        // 渲染网格
+        if let Some(t) = &tab.terminal {
+            paint_grid(ui, theme, &t.term, grid_rect, col_w, row_h, cols, rows, focused);
+        }
+    });
+
+    ui.add_space(12.0);
 
     // ---- 底部快捷提示条 ----
     let (hint_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), HINT_H), Sense::hover());
     let (hint_bg, hint_fg) = if theme.is_dark() {
-        (Color32::from_rgb(40, 40, 40), Color32::from_gray(140))
+        (Color32::from_rgb(30, 32, 48), Color32::from_rgb(147, 153, 178)) // Mantle and Overlay0
     } else {
-        (Color32::from_rgb(247, 248, 250), Color32::from_gray(150))
+        (Color32::from_rgb(248, 250, 252), Color32::from_rgb(148, 163, 184)) // Slate 50/400
     };
     ui.painter().rect_filled(hint_rect, 0.0, hint_bg);
     ui.painter().text(
-        Pos2::new(hint_rect.min.x + 10.0, hint_rect.center().y),
+        Pos2::new(hint_rect.min.x + 16.0, hint_rect.center().y),
         Align2::LEFT_CENTER,
-        "click terminal to type · Ctrl+C interrupt · wheel scrolls history · ? for shortcuts",
-        FontId::proportional(10.5),
+        "Click terminal to type · Ctrl+C interrupt · Scroll to view history",
+        FontId::proportional(11.0),
         hint_fg,
     );
 
@@ -482,7 +468,7 @@ fn rgb_to_color32(rgb: Rgb) -> Color32 {
 // 输入
 // ---------------------------------------------------------------------------
 
-fn forward_keys(ui: &mut Ui, session: &mut Session) {
+fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
     let events = ui.input(|i| i.events.clone());
     let mut out: Vec<u8> = Vec::new();
     for ev in events {
@@ -513,12 +499,13 @@ fn forward_keys(ui: &mut Ui, session: &mut Session) {
         }
     }
     if !out.is_empty() {
-        if let Some(pty) = &mut session.pty {
+        if let Some(pty) = &mut tab.pty {
             if let Err(e) = pty.write(&out) {
-                session.error = Some(format!("写入 PTY 失败: {e}"));
+                return Some(format!("写入 PTY 失败: {e}"));
             }
         }
     }
+    None
 }
 
 fn map_key(key: egui::Key, mods: &Modifiers) -> Option<Vec<u8>> {
@@ -565,15 +552,91 @@ fn key_to_char(key: egui::Key) -> Option<char> {
     }
 }
 
-fn handle_scroll(ui: &mut Ui, session: &mut Session) {
+fn handle_scroll(ui: &mut Ui, tab: &mut TerminalInstance) {
     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
     if scroll == 0.0 {
         return;
     }
     let lines = (scroll / 40.0).round() as i32;
     if lines != 0 {
-        if let Some(t) = &mut session.terminal {
+        if let Some(t) = &mut tab.terminal {
             t.scroll_display(-lines);
         }
     }
+}
+
+/// 绘制一个标签页，返回点击/关闭对应的动作。
+fn draw_tab(
+    ui: &mut Ui,
+    session: &Session,
+    ti: usize,
+    is_active: bool,
+    theme: &TermTheme,
+) -> Option<TerminalAction> {
+    let label = format!("{} {}", session.name, ti + 1);
+    let font_id = FontId::proportional(12.5);
+    let char_w = ui.fonts_mut(|f| f.glyph_width(&font_id, ' '));
+    let text_w = char_w * label.chars().count() as f32;
+    let tab_w = text_w + 40.0;
+    let tab_h = 32.0;
+    let (tab_rect, resp) = ui.allocate_exact_size(vec2(tab_w, tab_h), Sense::click());
+
+    // 背景：激活 = 终端底色（与内容区连成一体），非激活 = 透明/悬浮灰
+    let bg = if is_active {
+        theme.background
+    } else if resp.hovered() {
+        if theme.is_dark() {
+            Color32::from_gray(45)
+        } else {
+            Color32::from_rgb(241, 245, 249)
+        }
+    } else {
+        Color32::TRANSPARENT
+    };
+    if bg != Color32::TRANSPARENT {
+        ui.painter().rect_filled(tab_rect, 8.0, bg);
+    }
+
+    let label_color = if is_active {
+        theme.foreground
+    } else if theme.is_dark() {
+        Color32::from_gray(180)
+    } else {
+        Color32::from_gray(90)
+    };
+    ui.painter().text(
+        Pos2::new(tab_rect.min.x + 12.0, tab_rect.center().y),
+        Align2::LEFT_CENTER,
+        &label,
+        font_id,
+        label_color,
+    );
+
+    // 关闭按钮
+    let close_rect = Rect::from_center_size(
+        Pos2::new(tab_rect.right() - 16.0, tab_rect.center().y),
+        vec2(16.0, 16.0),
+    );
+    let close_resp = ui.interact(close_rect, Id::new(("tab-close", ti)), Sense::click());
+    let close_color = if close_resp.hovered() {
+        Color32::from_rgb(220, 60, 50)
+    } else if theme.is_dark() {
+        Color32::from_gray(140)
+    } else {
+        Color32::from_gray(120)
+    };
+    ui.painter().text(
+        close_rect.center(),
+        Align2::CENTER_CENTER,
+        "✕",
+        FontId::proportional(10.0),
+        close_color,
+    );
+    if close_resp.clicked() {
+        return Some(TerminalAction::KillTab(ti));
+    }
+    if resp.clicked() {
+        return Some(TerminalAction::SwitchTab(ti));
+    }
+    None
 }

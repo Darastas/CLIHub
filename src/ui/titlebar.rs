@@ -7,7 +7,7 @@
 use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Sense, Stroke, Ui, vec2};
 use egui::ViewportCommand;
 
-const TITLEBAR_H: f32 = 34.0;
+const TITLEBAR_H: f32 = 40.0;
 const BTN_W: f32 = 46.0;
 
 #[derive(Clone, Copy)]
@@ -40,23 +40,23 @@ pub fn show(ui: &mut Ui) {
     // 左上角应用名
     let dark = ui.visuals().dark_mode;
     let title_color = if dark {
-        Color32::from_gray(220)
+        Color32::from_rgb(205, 214, 244) // Text in Catppuccin
     } else {
-        Color32::from_gray(50)
+        Color32::from_rgb(30, 41, 59) // Slate 800
     };
     ui.painter().text(
-        Pos2::new(rect.min.x + 14.0, rect.center().y),
+        Pos2::new(rect.min.x + 16.0, rect.center().y),
         Align2::LEFT_CENTER,
         "AI CLI Hub",
-        FontId::proportional(12.5),
+        FontId::proportional(13.0),
         title_color,
     );
 
     // 底部细分隔线
     let border = if dark {
-        Color32::from_rgb(55, 55, 55)
+        Color32::from_rgb(49, 50, 68) // Surface0
     } else {
-        Color32::from_rgb(229, 231, 235)
+        Color32::from_rgb(226, 232, 240) // Slate 200
     };
     ui.painter().line_segment(
         [
@@ -100,12 +100,12 @@ fn draw_caption_button(ui: &mut Ui, titlebar: Rect, x: f32, icon: CaptionIcon) -
 
     // 悬浮背景：关闭键红色，其余灰
     let hover_bg = if dark {
-        Color32::from_rgb(60, 60, 60)
+        Color32::from_rgb(69, 71, 90) // Surface1
     } else {
-        Color32::from_rgb(229, 231, 235)
+        Color32::from_rgb(226, 232, 240) // Slate 200
     };
     let bg = if hovered && is_close {
-        Color32::from_rgb(196, 43, 28)
+        Color32::from_rgb(217, 38, 38) // slightly softer red
     } else if hovered {
         hover_bg
     } else {

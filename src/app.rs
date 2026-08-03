@@ -9,7 +9,7 @@ use crate::backend::io_loop;
 use crate::backend::pty::PtyHandle;
 use crate::backend::terminal::Terminal;
 use crate::config::{AppConfig, CliEntry, ThemeSettings};
-use crate::state::{Session, SessionStatus};
+use crate::state::{Session, SessionStatus, TerminalInstance};
 use crate::ui::{sidebar, terminal, titlebar};
 
 pub struct HubApp {
@@ -108,27 +108,40 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// 依据主题构建整个应用的 egui 视觉（侧边栏/标题栏/面板/对话框）。
 fn app_visuals(dark: bool) -> egui::Visuals {
     let mut v = if dark {
         egui::Visuals::dark()
     } else {
         egui::Visuals::light()
     };
+    
+    // 全局增加圆角，提升现代感
+    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(8);
+    v.widgets.inactive.corner_radius = egui::CornerRadius::same(8);
+    v.widgets.hovered.corner_radius = egui::CornerRadius::same(8);
+    v.widgets.active.corner_radius = egui::CornerRadius::same(8);
+    v.window_corner_radius = egui::CornerRadius::same(12);
+    
     if dark {
-        v.panel_fill = Color32::from_rgb(30, 30, 30);
-        v.window_fill = Color32::from_rgb(38, 38, 38);
-        v.selection.bg_fill = Color32::from_rgb(45, 70, 120);
+        // VS Code 风格中性深灰：不偏色，最能承载 ANSI 彩色输出
+        v.panel_fill = Color32::from_rgb(37, 37, 38);   // #252526
+        v.window_fill = Color32::from_rgb(30, 30, 30);  // #1E1E1E
+        v.selection.bg_fill = Color32::from_rgb(38, 79, 120);
         v.selection.stroke = egui::Stroke::NONE;
         v.widgets.hovered.weak_bg_fill = Color32::from_rgb(45, 45, 45);
-        v.widgets.hovered.bg_fill = Color32::from_rgb(50, 50, 50);
+        v.widgets.hovered.bg_fill = Color32::from_rgb(45, 45, 45);
+        v.widgets.noninteractive.bg_fill = Color32::from_rgb(30, 30, 30);
+        v.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60)); // #3C3C3C
     } else {
-        v.panel_fill = Color32::from_rgb(247, 248, 250);
-        v.window_fill = Color32::from_rgb(250, 251, 252);
-        v.selection.bg_fill = Color32::from_rgb(228, 230, 234);
+        // Clean modern light theme
+        v.panel_fill = Color32::from_rgb(248, 250, 252);
+        v.window_fill = Color32::from_rgb(255, 255, 255);
+        v.selection.bg_fill = Color32::from_rgb(226, 232, 240);
         v.selection.stroke = egui::Stroke::NONE;
-        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(237, 239, 242);
-        v.widgets.hovered.bg_fill = Color32::from_rgb(237, 239, 242);
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(241, 245, 249);
+        v.widgets.hovered.bg_fill = Color32::from_rgb(241, 245, 249);
+        v.widgets.noninteractive.bg_fill = Color32::from_rgb(255, 255, 255);
+        v.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(229, 231, 235));
     }
     v
 }
@@ -162,10 +175,10 @@ impl HubApp {
             show_settings: false,
             settings_draft: initial_theme,
         };
-        // 自动启动首个可用的终端会话，验证链路
+        // 自动为默认终端会话开第一个标签页，验证链路
         if let Some(i) = app.find_terminal_index() {
             app.selected = i;
-            app.spawn_session(i);
+            app.spawn_tab(i);
         }
         app
     }
@@ -217,7 +230,10 @@ impl HubApp {
         if idx >= self.sessions.len() {
             return;
         }
-        self.kill_session(idx);
+        // 杀掉该会话的全部标签页
+        for tab in self.sessions[idx].tabs.drain(..) {
+            drop(tab); // PtyHandle::drop 会 kill 子进程
+        }
         self.sessions.remove(idx);
         if self.selected >= self.sessions.len() {
             self.selected = self.sessions.len().saturating_sub(1);
@@ -225,72 +241,78 @@ impl HubApp {
         self.sync_config();
     }
 
-    fn spawn_session(&mut self, idx: usize) {
-        let Some(s) = self.sessions.get_mut(idx) else {
+    /// 为某个会话新建一个标签页并激活。
+    fn spawn_tab(&mut self, session_idx: usize) {
+        let Some(s) = self.sessions.get_mut(session_idx) else {
             return;
         };
         s.error = None;
-        s.terminal = Some(Terminal::new(24, 80));
         let command = s.command.clone();
         let cwd = s.cwd.clone();
+        let mut inst = TerminalInstance::new();
         match PtyHandle::spawn(&command, &[], &cwd, 24, 80) {
             Ok((pty, rx)) => {
-                s.rx = Some(rx);
-                s.alive = pty.alive.clone();
-                s.pty = Some(pty);
+                inst.alive = pty.alive.clone();
+                inst.terminal = Some(Terminal::new(24, 80));
+                inst.pty = Some(pty);
+                inst.rx = Some(rx);
             }
             Err(e) => {
                 s.error = Some(format!("无法启动 `{command}`: {e:#}"));
             }
         }
+        s.tabs.push(inst);
+        s.active_tab = s.tabs.len() - 1;
     }
 
-    fn kill_session(&mut self, idx: usize) {
-        let Some(s) = self.sessions.get_mut(idx) else {
+    /// 关闭并移除某个标签页（杀进程）。
+    fn kill_tab(&mut self, session_idx: usize, tab_idx: usize) {
+        let Some(s) = self.sessions.get_mut(session_idx) else {
             return;
         };
-        if let Some(t) = &mut s.terminal {
-            t.feed_text("\r\n[session ended]\r\n");
+        if tab_idx >= s.tabs.len() {
+            return;
         }
-        s.pty.take(); // Drop 会 kill 子进程
-        s.rx = None;
-        s.alive.store(false, std::sync::atomic::Ordering::SeqCst);
+        s.tabs[tab_idx].pty.take(); // Drop 会 kill 子进程
+        s.tabs[tab_idx].rx = None;
+        s.tabs[tab_idx].alive.store(false, std::sync::atomic::Ordering::SeqCst);
+        s.tabs.remove(tab_idx);
+        if s.tabs.is_empty() {
+            s.active_tab = 0;
+            s.error = None;
+        } else if s.active_tab >= s.tabs.len() {
+            s.active_tab = s.tabs.len() - 1;
+        }
     }
 
-    fn restart_session(&mut self, idx: usize) {
-        self.kill_session(idx);
-        if let Some(s) = self.sessions.get_mut(idx) {
-            s.terminal = Some(Terminal::new(24, 80));
-        }
-        self.spawn_session(idx);
-    }
-
-    /// 后台数据更新：拉取 PTY 输出喂进终端、检测进程退出。禁止在此绘制。
+    /// 后台数据更新：遍历 会话 → 标签页，拉取 PTY 输出喂进终端、检测退出。禁止绘制。
     fn update_backend(&mut self, ctx: &Context) {
         let mut dirty = false;
         for s in &mut self.sessions {
-            // 终端需要写回 PTY 的应答（DSR 光标位置等），立即转发
-            if let Some(t) = &mut s.terminal {
-                for text in t.drain_pty_writes() {
-                    if let Some(pty) = &mut s.pty {
-                        if let Err(e) = pty.write(text.as_bytes()) {
-                            s.error = Some(format!("写回 PTY 失败: {e}"));
+            for tab in &mut s.tabs {
+                // 终端需要写回 PTY 的应答（DSR 光标位置等），立即转发
+                if let Some(t) = &mut tab.terminal {
+                    for text in t.drain_pty_writes() {
+                        if let Some(pty) = &mut tab.pty {
+                            if let Err(e) = pty.write(text.as_bytes()) {
+                                s.error = Some(format!("写回 PTY 失败: {e}"));
+                            }
                         }
                     }
                 }
-            }
-            // 拉取 PTY 输出 → 喂进 alacritty 网格
-            if let Some(rx) = &s.rx {
-                if io_loop::drain(rx, &mut s.terminal) > 0 {
-                    dirty = true;
+                // 拉取 PTY 输出 → 喂进 alacritty 网格
+                if let Some(rx) = &tab.rx {
+                    if io_loop::drain(rx, &mut tab.terminal) > 0 {
+                        dirty = true;
+                    }
                 }
-            }
-            // 检测进程退出
-            if let Some(pty) = &mut s.pty {
-                if let Ok(Some(_)) = pty.child.try_wait() {
-                    s.alive.store(false, std::sync::atomic::Ordering::SeqCst);
-                    if let Some(t) = &mut s.terminal {
-                        t.feed_text("\r\n[process exited]\r\n");
+                // 检测进程退出
+                if let Some(pty) = &mut tab.pty {
+                    if let Ok(Some(_)) = pty.child.try_wait() {
+                        tab.alive.store(false, std::sync::atomic::Ordering::SeqCst);
+                        if let Some(t) = &mut tab.terminal {
+                            t.feed_text("\r\n[process exited]\r\n");
+                        }
                     }
                 }
             }
@@ -315,10 +337,13 @@ impl HubApp {
             });
         if let Some(idx) = side.select {
             self.selected = idx;
-            // 非 Running 状态（Idle/Failed/Exited）点击即启动；
-            // 之前启动失败过的会话（如旧的 os error 193）也能重新拉起
-            if self.sessions[idx].status() != SessionStatus::Running {
-                self.spawn_session(idx);
+            // 首次选中且无标签页时，自动开第一个标签；后续用右侧 + 开新标签
+            let should_start = {
+                let s = &self.sessions[idx];
+                s.tabs.is_empty() && s.status() != SessionStatus::Failed
+            };
+            if should_start {
+                self.spawn_tab(idx);
             }
         }
         if let Some(idx) = side.remove {
@@ -364,8 +389,15 @@ impl HubApp {
         });
 
         match action {
-            Some(terminal::TerminalAction::Kill) => self.kill_session(self.selected),
-            Some(terminal::TerminalAction::Restart) => self.restart_session(self.selected),
+            Some(terminal::TerminalAction::NewTab) => self.spawn_tab(self.selected),
+            Some(terminal::TerminalAction::SwitchTab(t)) => {
+                if let Some(s) = self.sessions.get_mut(self.selected) {
+                    if t < s.tabs.len() {
+                        s.active_tab = t;
+                    }
+                }
+            }
+            Some(terminal::TerminalAction::KillTab(t)) => self.kill_tab(self.selected, t),
             None => {}
         }
     }

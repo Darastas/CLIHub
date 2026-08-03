@@ -1,4 +1,7 @@
-//! 单个 CLI 会话：绑定一个 PTY 子进程、终端状态机（字符网格）和运行状态。
+//! 会话模型：一个 CLI 配置（Session）可持有多个后台进程（Tab）。
+//!
+//! 侧边栏管理的是 `Session`（即 CLI 配置）；右侧终端区是一组 `TerminalInstance`
+//! 标签页，每个 Tab 独立绑定一个 PTY 子进程、终端状态机（字符网格）和运行状态。
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,24 +15,19 @@ use crate::backend::terminal::Terminal;
 /// 会话当前状态，用于侧边栏展示。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
-    /// 尚未启动
+    /// 尚未启动任何实例
     Idle,
-    /// 正在后台运行
+    /// 至少一个实例正在运行
     Running,
-    /// 进程已退出
+    /// 实例均已退出
     Exited,
     /// 启动失败
     Failed,
 }
 
-pub struct Session {
-    #[allow(dead_code)] // Phase 4 多实例索引
-    pub id: usize,
-    pub name: String,
-    pub command: String,
-    pub cwd: PathBuf,
-
-    /// alacritty 终端状态机；None 表示未启动
+/// 单个终端实例（标签页）：一个 PTY 子进程 + 一个字符网格。
+pub struct TerminalInstance {
+    /// alacritty 终端状态机；None 表示该实例未创建终端
     pub terminal: Option<Terminal>,
     /// 由 PTY reader 线程发来的原始字节块
     pub rx: Option<Receiver<Vec<u8>>>,
@@ -37,6 +35,41 @@ pub struct Session {
     pub pty: Option<PtyHandle>,
     /// 进程是否存活
     pub alive: Arc<AtomicBool>,
+}
+
+impl TerminalInstance {
+    pub fn new() -> Self {
+        Self {
+            terminal: None,
+            rx: None,
+            pty: None,
+            alive: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.pty.is_some() && self.alive.load(Ordering::SeqCst)
+    }
+}
+
+impl Default for TerminalInstance {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 一个 CLI 配置及其全部实例（标签页）。
+pub struct Session {
+    #[allow(dead_code)]
+    pub id: usize,
+    pub name: String,
+    pub command: String,
+    pub cwd: PathBuf,
+
+    /// 全部实例（标签页）
+    pub tabs: Vec<TerminalInstance>,
+    /// 当前激活的标签页
+    pub active_tab: usize,
     /// 启动或运行期间的错误
     pub error: Option<String>,
 }
@@ -48,10 +81,8 @@ impl Session {
             name: name.to_string(),
             command: command.to_string(),
             cwd,
-            terminal: None,
-            rx: None,
-            pty: None,
-            alive: Arc::new(AtomicBool::new(false)),
+            tabs: Vec::new(),
+            active_tab: 0,
             error: None,
         }
     }
@@ -60,18 +91,14 @@ impl Session {
         if self.error.is_some() {
             return SessionStatus::Failed;
         }
-        if self.pty.is_none() {
+        if self.tabs.is_empty() {
             return SessionStatus::Idle;
         }
-        if self.alive.load(Ordering::SeqCst) {
+        if self.tabs.iter().any(|t| t.is_running()) {
             SessionStatus::Running
         } else {
             SessionStatus::Exited
         }
     }
 
-    /// 该会话是否处于可交互状态。
-    pub fn is_interactive(&self) -> bool {
-        self.pty.is_some() && self.alive.load(Ordering::SeqCst)
-    }
 }

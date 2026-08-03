@@ -2,4 +2,4 @@
 
 pub mod session;
 
-pub use session::{Session, SessionStatus};
+pub use session::{Session, SessionStatus, TerminalInstance};
