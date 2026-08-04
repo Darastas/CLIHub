@@ -1,0 +1,212 @@
+[clihub panic] panicked at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:1031:41:
+FontFamily::Name("jbmono") is not bound to any fonts
+   0: std::backtrace_rs::backtrace::win64::trace
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\..\..\backtrace\src\backtrace\win64.rs:85
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\..\..\backtrace\src\backtrace\mod.rs:66
+   2: std::backtrace::Backtrace::create
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\backtrace.rs:331
+   3: std::backtrace::Backtrace::force_capture
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\backtrace.rs:312
+   4: clihub::main::closure$0
+             at .\src\main.rs:16
+   5: std::panicking::panic_with_hook
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\panicking.rs:833
+   6: std::panicking::panic_handler::closure$0
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\panicking.rs:698
+   7: std::sys::backtrace::__rust_end_short_backtrace<std::panicking::panic_handler::closure_env$0,never$>
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\sys\backtrace.rs:182
+   8: std::panicking::panic_handler
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\panicking.rs:689
+   9: core::panicking::panic_fmt
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\core\src\panicking.rs:80
+  10: epaint::text::fonts::impl$18::font::closure$0::closure$0
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:1031
+  11: enum2$<core::option::Option<ref$<alloc::vec::Vec<alloc::string::String,alloc::alloc::Global> > > >::unwrap_or_else<ref$<alloc::vec::Vec<alloc::string::String,alloc::alloc::Global> >,epaint::text::fonts::impl$18::font::closure$0::closure_env$0>
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\option.rs:1067
+  12: epaint::text::fonts::impl$18::font::closure$0
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:1031
+  13: enum2$<std::collections::hash::map::Entry<enum2$<epaint::text::fonts::FontFamily>,epaint::text::fonts::CachedFamily,alloc::alloc::Global> >::or_insert_with<enum2$<epaint::text::fonts::FontFamily>,epaint::text::fonts::CachedFamily,alloc::alloc::Global,epain
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\collections\hash\map.rs:2514
+  14: epaint::text::fonts::FontsImpl::font
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:1028
+  15: epaint::text::text_layout::layout
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\text_layout.rs:127
+  16: epaint::text::fonts::GalleyCache::layout_internal
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:1153
+  17: epaint::text::fonts::GalleyCache::layout
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:1175
+  18: epaint::text::fonts::FontsView::layout_job
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:898
+  19: epaint::text::fonts::FontsView::layout
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\epaint-0.35.0\src\text\fonts.rs:930
+  20: egui::painter::impl$4::layout_no_wrap::closure$0
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\painter.rs:509
+  21: egui::context::impl$12::fonts_mut::closure$0<alloc::sync::Arc<epaint::text::text_layout_types::Galley,alloc::alloc::Global>,egui::painter::impl$4::layout_no_wrap::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:1051
+  22: egui::context::Context::write<alloc::sync::Arc<epaint::text::text_layout_types::Galley,alloc::alloc::Global>,egui::context::impl$12::fonts_mut::closure_env$0<alloc::sync::Arc<epaint::text::text_layout_types::Galley,alloc::alloc::Global>,egui::painter::impl
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:752
+  23: egui::context::Context::fonts_mut<alloc::sync::Arc<epaint::text::text_layout_types::Galley,alloc::alloc::Global>,egui::painter::impl$4::layout_no_wrap::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:1049
+  24: egui::painter::Painter::fonts_mut<alloc::sync::Arc<epaint::text::text_layout_types::Galley,alloc::alloc::Global>,egui::painter::impl$4::layout_no_wrap::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\painter.rs:151
+  25: egui::painter::Painter::layout_no_wrap
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\painter.rs:509
+  26: egui::painter::Painter::text<ref$<alloc::string::String> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\painter.rs:477
+  27: clihub::ui::sidebar::draw_card
+             at .\src\ui\sidebar.rs:200
+  28: clihub::ui::sidebar::show::closure$1
+             at .\src\ui\sidebar.rs:91
+  29: egui::containers::scroll_area::impl$13::show::closure$0<tuple$<>,clihub::ui::sidebar::show::closure_env$1>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\scroll_area.rs:965
+  30: core::ops::function::FnOnce::call_once<egui::containers::scroll_area::impl$13::show::closure_env$0<tuple$<>,clihub::ui::sidebar::show::closure_env$1>,tuple$<ref_mut$<egui::ui::Ui>,emath::rect::Rect> >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
+  31: alloc::boxed::impl$31::call_once<tuple$<ref_mut$<egui::ui::Ui>,emath::rect::Rect>,dyn$<core::ops::function::FnOnce<tuple$<ref_mut$<egui::ui::Ui>,emath::rect::Rect>,assoc$<Output,tuple$<> > > >,alloc::alloc::Global>
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\alloc\src\boxed.rs:2206
+  32: egui::containers::scroll_area::impl$13::show_viewport_dyn::closure$1<tuple$<> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\scroll_area.rs:1045
+  33: core::ops::function::FnOnce::call_once<egui::containers::scroll_area::impl$13::show_viewport_dyn::closure_env$1<tuple$<> >,tuple$<ref_mut$<egui::ui::Ui> > >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
+  34: alloc::boxed::impl$31::call_once<tuple$<ref_mut$<egui::ui::Ui> >,dyn$<core::ops::function::FnOnce<tuple$<ref_mut$<egui::ui::Ui> >,assoc$<Output,tuple$<> > > >,alloc::alloc::Global>
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\alloc\src\boxed.rs:2206
+  35: egui::containers::frame::Frame::show_dyn<tuple$<> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\frame.rs:417
+  36: egui::containers::frame::Frame::show<tuple$<>,egui::containers::scroll_area::impl$13::show_viewport_dyn::closure_env$1<tuple$<> > >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\frame.rs:405
+  37: egui::containers::scroll_area::ScrollArea::show_viewport_dyn<tuple$<> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\scroll_area.rs:1044
+  38: egui::containers::scroll_area::ScrollArea::show<tuple$<>,clihub::ui::sidebar::show::closure_env$1>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\scroll_area.rs:965
+  39: clihub::ui::sidebar::show
+             at .\src\ui\sidebar.rs:88
+  40: clihub::app::impl$0::update_ui::closure$0
+             at .\src\app.rs:400
+  41: core::ops::function::FnOnce::call_once<clihub::app::impl$0::update_ui::closure_env$0,tuple$<ref_mut$<egui::ui::Ui> > >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
+  42: alloc::boxed::impl$31::call_once<tuple$<ref_mut$<egui::ui::Ui> >,dyn$<core::ops::function::FnOnce<tuple$<ref_mut$<egui::ui::Ui> >,assoc$<Output,tuple$<> > > >,alloc::alloc::Global>
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\alloc\src\boxed.rs:2206
+  43: egui::containers::panel::impl$4::show_inside_dyn::closure$0<tuple$<> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\panel.rs:774
+  44: core::ops::function::FnOnce::call_once<egui::containers::panel::impl$4::show_inside_dyn::closure_env$0<tuple$<> >,tuple$<ref_mut$<egui::ui::Ui> > >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
+  45: alloc::boxed::impl$31::call_once<tuple$<ref_mut$<egui::ui::Ui> >,dyn$<core::ops::function::FnOnce<tuple$<ref_mut$<egui::ui::Ui> >,assoc$<Output,tuple$<> > > >,alloc::alloc::Global>
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\alloc\src\boxed.rs:2206
+  46: egui::containers::frame::Frame::show_dyn<tuple$<> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\frame.rs:417
+  47: egui::containers::frame::Frame::show<tuple$<>,egui::containers::panel::impl$4::show_inside_dyn::closure_env$0<tuple$<> > >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\frame.rs:405
+  48: egui::containers::panel::Panel::show_inside_dyn<tuple$<> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\panel.rs:763
+  49: egui::containers::panel::Panel::show<tuple$<>,clihub::app::impl$0::update_ui::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\containers\panel.rs:364
+  50: clihub::app::HubApp::update_ui
+             at .\src\app.rs:399
+  51: clihub::app::impl$1::ui
+             at .\src\app.rs:680
+  52: eframe::native::epi_integration::impl$0::update::closure$0
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\epi_integration.rs:295
+  53: egui::context::impl$11::run_ui_dyn::closure$1
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:798
+  54: egui::context::Context::run_dyn
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:842
+  55: egui::context::Context::run_ui_dyn
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:787
+  56: egui::context::Context::run_ui<eframe::native::epi_integration::impl$0::update::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\egui-0.35.0\src\context.rs:781
+  57: eframe::native::epi_integration::EpiIntegration::update
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\epi_integration.rs:279
+  58: eframe::native::wgpu_integration::WgpuWinitRunning::run_ui_and_paint
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\wgpu_integration.rs:680
+  59: eframe::native::wgpu_integration::impl$1::run_ui_and_paint
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\wgpu_integration.rs:416
+  60: eframe::native::run::WinitAppWrapper<eframe::native::wgpu_integration::WgpuWinitApp>::handle_event_result<eframe::native::wgpu_integration::WgpuWinitApp>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:116
+  61: eframe::native::run::impl$1::resumed::closure$0<eframe::native::wgpu_integration::WgpuWinitApp>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:262
+  62: eframe::native::event_loop_context::with_event_loop_context<eframe::native::run::impl$1::resumed::closure_env$0<eframe::native::wgpu_integration::WgpuWinitApp> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\event_loop_context.rs:53
+  63: eframe::native::run::impl$1::resumed<eframe::native::wgpu_integration::WgpuWinitApp>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:260
+  64: winit::event_loop::dispatch_event_for_app
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\event_loop.rs:646
+  65: winit::platform::run_on_demand::EventLoopExtRunOnDemand::run_app_on_demand::closure$0<winit::event_loop::EventLoop<enum2$<eframe::native::winit_integration::UserEvent> >,eframe::native::run::WinitAppWrapper<eframe::native::wgpu_integration::WgpuWinitApp> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform\run_on_demand.rs:76
+  66: winit::platform_impl::windows::event_loop::impl$3::run_on_demand::closure$0<enum2$<eframe::native::winit_integration::UserEvent>,winit::platform::run_on_demand::EventLoopExtRunOnDemand::run_app_on_demand::closure_env$0<winit::event_loop::EventLoop<enum2$<e
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop.rs:264
+  67: alloc::boxed::impl$32::call_mut<tuple$<enum2$<winit::event::Event<winit::platform_impl::windows::event_loop::UserEventPlaceholder> > >,dyn$<core::ops::function::FnMut<tuple$<enum2$<winit::event::Event<winit::platform_impl::windows::event_loop::UserEventPla
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\alloc\src\boxed.rs:2213
+  68: winit::platform_impl::windows::event_loop::runner::impl$3::call_event_handler::closure$0<winit::platform_impl::windows::event_loop::UserEventPlaceholder>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop\runner.rs:236
+  69: core::panic::unwind_safe::impl$25::call_once<tuple$<>,winit::platform_impl::windows::event_loop::runner::impl$3::call_event_handler::closure_env$0<winit::platform_impl::windows::event_loop::UserEventPlaceholder> >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\panic\unwind_safe.rs:274
+  70: std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<winit::platform_impl::windows::event_loop::runner::impl$3::call_event_handler::closure_env$0<winit::platform_impl::windows::event_loop::UserEventPlaceholder> >,tuple$<> >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\panicking.rs:581
+  71: winit::platform_impl::windows::keyboard::impl$0::default
+  72: std::panicking::catch_unwind
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\panicking.rs:544
+  73: std::panic::catch_unwind<core::panic::unwind_safe::AssertUnwindSafe<winit::platform_impl::windows::event_loop::runner::impl$3::call_event_handler::closure_env$0<winit::platform_impl::windows::event_loop::UserEventPlaceholder> >,tuple$<> >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\panic.rs:359
+  74: winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>::catch_unwind<winit::platform_impl::windows::event_loop::UserEventPlaceholder,tuple$<>,winit::platform_impl::windows::event_
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop\runner.rs:173
+  75: winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>::call_event_handler<winit::platform_impl::windows::event_loop::UserEventPlaceholder>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop\runner.rs:230
+  76: winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>::call_new_events<winit::platform_impl::windows::event_loop::UserEventPlaceholder>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop\runner.rs:355
+  77: winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>::move_state_to<winit::platform_impl::windows::event_loop::UserEventPlaceholder>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop\runner.rs:294
+  78: winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>::prepare_wait<winit::platform_impl::windows::event_loop::UserEventPlaceholder>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop\runner.rs:201
+  79: winit::platform_impl::windows::event_loop::EventLoop<enum2$<eframe::native::winit_integration::UserEvent> >::wait_for_messages<enum2$<eframe::native::winit_integration::UserEvent> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop.rs:382
+  80: winit::platform_impl::windows::event_loop::EventLoop<enum2$<eframe::native::winit_integration::UserEvent> >::run_on_demand<enum2$<eframe::native::winit_integration::UserEvent>,winit::platform::run_on_demand::EventLoopExtRunOnDemand::run_app_on_demand::clos
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform_impl\windows\event_loop.rs:270
+  81: winit::platform::run_on_demand::impl$0::run_on_demand<enum2$<eframe::native::winit_integration::UserEvent>,winit::platform::run_on_demand::EventLoopExtRunOnDemand::run_app_on_demand::closure_env$0<winit::event_loop::EventLoop<enum2$<eframe::native::winit_i
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform\run_on_demand.rs:89
+  82: winit::platform::run_on_demand::EventLoopExtRunOnDemand::run_app_on_demand<winit::event_loop::EventLoop<enum2$<eframe::native::winit_integration::UserEvent> >,eframe::native::run::WinitAppWrapper<eframe::native::wgpu_integration::WgpuWinitApp> >
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\winit-0.30.13\src\platform\run_on_demand.rs:75
+  83: eframe::native::run::run_and_return<eframe::native::wgpu_integration::WgpuWinitApp>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:380
+  84: eframe::native::run::run_wgpu::closure$0
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:451
+  85: eframe::native::run::with_event_loop::closure$0<enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > >,eframe::native::run::run_wgpu::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:73
+  86: std::thread::local::LocalKey<core::cell::RefCell<enum2$<core::option::Option<winit::event_loop::EventLoop<enum2$<eframe::native::winit_integration::UserEvent> > > > > >::try_with<core::cell::RefCell<enum2$<core::option::Option<winit::event_loop::EventLoop<
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\thread\local.rs:513
+  87: std::thread::local::LocalKey<core::cell::RefCell<enum2$<core::option::Option<winit::event_loop::EventLoop<enum2$<eframe::native::winit_integration::UserEvent> > > > > >::with<core::cell::RefCell<enum2$<core::option::Option<winit::event_loop::EventLoop<enum
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\thread\local.rs:477
+  88: eframe::native::run::with_event_loop<enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > >,eframe::native::run::run_wgpu::closure_env$0>
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:63
+  89: eframe::native::run::run_wgpu
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\native\run.rs:448
+  90: eframe::run_native_ext
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\lib.rs:324
+  91: eframe::run_native
+             at C:\Users\14737\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\eframe-0.35.0\src\lib.rs:293
+  92: clihub::main
+             at .\src\main.rs:30
+  93: core::ops::function::FnOnce::call_once<enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > > (*)(),tuple$<> >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\core\src\ops\function.rs:250
+  94: std::sys::backtrace::__rust_begin_short_backtrace<enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > > (*)(),enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > > >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\sys\backtrace.rs:166
+  95: std::rt::lang_start::closure$0<enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > > >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\rt.rs:206
+  96: std::rt::lang_start_internal::closure$0
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\rt.rs:175
+  97: std::panicking::catch_unwind::do_call
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\panicking.rs:581
+  98: std::panicking::catch_unwind
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\panicking.rs:544
+  99: std::panic::catch_unwind
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\panic.rs:359
+ 100: std::rt::lang_start_internal
+             at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library\std\src\rt.rs:171
+ 101: std::rt::lang_start<enum2$<core::result::Result<tuple$<>,enum2$<eframe::Error> > > >
+             at C:\Users\14737\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\src\rust\library\std\src\rt.rs:205
+ 102: main
+ 103: invoke_main
+             at D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:78
+ 104: __scrt_common_main_seh
+             at D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:288
+ 105: BaseThreadInitThunk
+ 106: RtlUserThreadStart

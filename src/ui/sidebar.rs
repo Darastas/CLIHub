@@ -49,6 +49,11 @@ fn name_secondary(dark: bool) -> Color32 {
 pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction {
     let mut action = SidebarAction::default();
     let dark = ui.visuals().dark_mode;
+    
+    // Clear drag state if mouse is released
+    if !ui.ctx().input(|i| i.pointer.any_down()) {
+        ui.memory_mut(|mem| mem.data.remove::<usize>(Id::new("dragged_idx")));
+    }
 
     // ---- SESSIONS 分区标题 + 新增按钮 ----
     ui.add_space(16.0);
@@ -66,16 +71,6 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction
             }
         });
     });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new("click to open · drag to reorder")
-                .size(9.5)
-                .color(muted(dark)),
-        );
-    });
-    ui.add_space(12.0);
 
     if sessions.is_empty() {
         ui.add_space(8.0);
@@ -85,35 +80,23 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction
                 .color(muted(dark)),
         );
     }
+    ui.add_space(16.0); // Added generous spacing before cards
 
     // ---- 会话卡片（点击选中，拖动排序）----
-    for (idx, s) in sessions.iter().enumerate() {
-        let is_sel = idx == selected;
-        let (_, dropped) = ui.dnd_drop_zone(egui::Frame::NONE, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for (idx, s) in sessions.iter().enumerate() {
+                let is_sel = idx == selected;
                 draw_card(ui, s, idx, is_sel, &mut action);
-                ui.add_space(8.0);
-            });
+                ui.allocate_space(vec2(0.0, 2.0));
+            }
         });
-        if let Some(from) = dropped {
-            action.move_to = Some((*from, idx));
-        }
-        ui.allocate_space(vec2(0.0, 4.0));
-    }
 
-    // ---- 底部：设置 + 会话计数 ----
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        if ui
-            .button(RichText::new("⚙").size(13.0))
-            .on_hover_text("Settings (theme, colors)")
-            .clicked()
-        {
-            action.settings = true;
-        }
         ui.label(
             RichText::new(format!("{} session(s)", sessions.len()))
                 .size(10.0)
@@ -133,83 +116,172 @@ fn draw_card(
     action: &mut SidebarAction,
 ) {
     let dark = ui.visuals().dark_mode;
-    let card_width = ui.available_width();
-    let row_rect = Rect::from_min_size(
-        Pos2::new(ui.cursor().min.x, ui.cursor().min.y),
-        vec2(card_width, 52.0),
+    let row_height = 56.0;
+    
+    // Allocate full width for interaction
+    let (row_rect, resp) = ui.allocate_exact_size(
+        vec2(ui.available_width(), row_height),
+        Sense::click_and_drag(),
     );
-    // click_and_drag：单击=选中，拖动=排序
-    let resp = ui.allocate_rect(row_rect, Sense::click_and_drag());
     let dragged = resp.dragged();
+    let hovered = resp.hovered();
 
-    // 背景：基于底色的柔和 Alpha 叠加（无论深浅背景都自然融入、不突兀）
-    let overlay = |a: u8| -> Color32 {
-        if dark {
-            Color32::from_white_alpha(a)
-        } else {
-            Color32::from_black_alpha(a)
-        }
-    };
-    let bg = if dragged {
-        overlay(70)
-    } else if is_sel {
-        overlay(34)
-    } else if resp.hovered() {
-        overlay(16)
-    } else {
-        Color32::TRANSPARENT
-    };
-
-    if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(row_rect, 12.0, bg);
-    }
-
-    // 拖拽中的描边 + 选中的左侧柔和指示条
+    // The visual background rect is slightly inset for a beautiful rounded floating look
+    let margin_x = 12.0;
+    let margin_y = 4.0;
+    
     if dragged {
-        ui.painter().rect_stroke(
-            row_rect,
-            12.0,
-            Stroke::new(1.5, ACCENT),
-            egui::StrokeKind::Inside,
-        );
-    } else if is_sel {
-        ui.painter().rect_filled(
-            Rect::from_min_max(
-                Pos2::new(row_rect.min.x - 4.0, row_rect.center().y - 10.0),
-                Pos2::new(row_rect.min.x, row_rect.center().y + 10.0),
-            ),
-            2.0,
-            ACCENT,
-        );
+        ui.memory_mut(|mem| mem.data.insert_temp(Id::new("dragged_idx"), idx));
+    }
+    
+    let is_dragging = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("dragged_idx")).is_some());
+    if is_dragging || dragged {
+        if let Some(pos) = ui.ctx().pointer_interact_pos() {
+            if row_rect.contains(pos) {
+                ui.memory_mut(|mem| mem.data.insert_temp(Id::new("target_idx"), idx));
+            }
+        }
     }
 
-    // 状态圆点 + 名称 + 工作目录
-    ui.painter().text(
-        Pos2::new(row_rect.min.x + 12.0, row_rect.min.y + 10.0),
-        Align2::LEFT_TOP,
-        status_dot(s.status()),
-        FontId::proportional(11.0),
-        status_color(s.status()),
-    );
-    ui.painter().text(
-        Pos2::new(row_rect.min.x + 28.0, row_rect.min.y + 9.0),
-        Align2::LEFT_TOP,
-        &s.name,
-        FontId::proportional(13.5),
-        if is_sel { text(dark) } else { name_secondary(dark) },
-    );
-    ui.painter().text(
-        Pos2::new(row_rect.min.x + 28.0, row_rect.min.y + 28.0),
-        Align2::LEFT_TOP,
-        s.cwd.display().to_string(),
-        FontId::monospace(10.5),
-        muted(dark),
-    );
+    let mut visual_rect = row_rect;
+    if is_dragging || dragged {
+        if let Some(dragged_id) = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("dragged_idx"))) {
+            let target_id = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("target_idx"))).unwrap_or(dragged_id);
+            
+            let mut target_visual_idx = idx;
+            if idx == dragged_id {
+                target_visual_idx = target_id;
+            } else if dragged_id < target_id {
+                if idx > dragged_id && idx <= target_id {
+                    target_visual_idx = idx.saturating_sub(1);
+                }
+            } else if dragged_id > target_id {
+                if idx >= target_id && idx < dragged_id {
+                    target_visual_idx = idx + 1;
+                }
+            }
+            
+            let offset_slots = target_visual_idx as f32 - idx as f32;
+            visual_rect = visual_rect.translate(vec2(0.0, offset_slots * (row_height + 2.0)));
+        }
+    }
+
+    let anim_y = ui.ctx().animate_value_with_time(Id::new(("anim_y", s.name.clone())), visual_rect.min.y, 0.15);
+    visual_rect = Rect::from_min_size(Pos2::new(visual_rect.min.x, anim_y), visual_rect.size());
+
+    let bg_rect = visual_rect.shrink2(vec2(margin_x, margin_y));
+
+    // Smooth animations for hover and selection
+    let sel_factor = ui.ctx().animate_bool(Id::new(("sel", idx)), is_sel);
+    let hover_factor = ui.ctx().animate_bool(Id::new(("hover", idx)), hovered && !is_sel);
+
+    fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+        Color32::from_rgba_premultiplied(
+            (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.a() as f32 * (1.0 - t) + b.a() as f32 * t).clamp(0.0, 255.0) as u8,
+        )
+    }
+
+    let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let hover_color = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+    
+    // Sleek monochrome selected background instead of blazing blue
+    let sel_color = if dark { 
+        Color32::from_white_alpha(24) 
+    } else { 
+        Color32::from_black_alpha(18) 
+    };
+    
+    // Interpolate background color
+    let bg = lerp_color(lerp_color(base_color, hover_color, hover_factor), sel_color, sel_factor);
+
+    // If dragging, we make the original card slightly faint
+    let opacity = if dragged { 0.3 } else { 1.0 };
+
+    // Interpolate text colors
+    let name_normal = name_secondary(dark);
+    let name_hover = text(dark);
+    // Selected text becomes perfectly crisp against the subtle background
+    let name_sel = if dark { Color32::WHITE } else { Color32::BLACK };
+    let fg_name = lerp_color(lerp_color(name_normal, name_hover, hover_factor), name_sel, sel_factor);
+
+    let cwd_normal = muted(dark);
+    let cwd_sel = if dark { Color32::from_white_alpha(160) } else { Color32::from_black_alpha(160) };
+    let fg_cwd = lerp_color(cwd_normal, cwd_sel, sel_factor);
+
+    let dot_normal = status_color(s.status());
+    let dot_sel = dot_normal; // Keep the original dot color (green/red) even when selected for a pro look
+    let fg_dot = lerp_color(dot_normal, dot_sel, sel_factor);
+    
+    let render_card = |painter: &egui::Painter, rect: Rect, alpha: f32, stroke: bool| {
+        let mut bg = bg;
+        bg[3] = (bg[3] as f32 * alpha) as u8;
+        if bg != Color32::TRANSPARENT {
+            painter.rect_filled(rect, 8.0, bg);
+        }
+        if stroke {
+            painter.rect_stroke(
+                rect,
+                8.0,
+                Stroke::new(1.5, ACCENT),
+                egui::StrokeKind::Inside,
+            );
+        }
+        
+        let mut fg_dot = fg_dot; fg_dot[3] = (fg_dot[3] as f32 * alpha) as u8;
+        let mut fg_name = fg_name; fg_name[3] = (fg_name[3] as f32 * alpha) as u8;
+        let mut fg_cwd = fg_cwd; fg_cwd[3] = (fg_cwd[3] as f32 * alpha) as u8;
+        
+        let text_start_x = rect.min.x + 12.0;
+        painter.text(
+            Pos2::new(text_start_x, rect.min.y + 10.0),
+            Align2::LEFT_TOP,
+            status_dot(s.status()),
+            FontId::proportional(11.0),
+            fg_dot,
+        );
+        painter.text(
+            Pos2::new(text_start_x + 16.0, rect.min.y + 8.0),
+            Align2::LEFT_TOP,
+            &s.name,
+            FontId::new(14.0, egui::FontFamily::Monospace),
+            fg_name,
+        );
+        painter.text(
+            Pos2::new(text_start_x + 16.0, rect.min.y + 27.0),
+            Align2::LEFT_TOP,
+            s.cwd.display().to_string(),
+            FontId::new(11.5, egui::FontFamily::Monospace),
+            fg_cwd,
+        );
+    };
+
+    // Draw the original card (faint if dragged)
+    render_card(ui.painter(), bg_rect, opacity, false);
+
+    if dragged {
+        resp.dnd_set_drag_payload(idx);
+        
+        // Draw the payload following the pointer
+        if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
+            // drag_rect uses the original non-animated bg_rect size, centered at pointer
+            let drag_rect = Rect::from_center_size(pointer_pos, bg_rect.size());
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, resp.id));
+            
+            // Opaque background for readability
+            let opaque_bg = if dark { Color32::from_rgb(45, 45, 45) } else { Color32::from_rgb(240, 240, 240) };
+            painter.rect_filled(drag_rect, 8.0, opaque_bg);
+            
+            render_card(&painter, drag_rect, 1.0, true);
+        }
+    }
 
     // 悬浮时右侧删除按钮
-    if resp.hovered() && !dragged {
+    if hovered && !dragged {
         let btn_rect = Rect::from_center_size(
-            Pos2::new(row_rect.right() - 20.0, row_rect.center().y),
+            Pos2::new(bg_rect.right() - 20.0, bg_rect.center().y),
             vec2(22.0, 22.0),
         );
         let btn = ui.interact(btn_rect, Id::new(("remove-session", idx)), Sense::click());
@@ -224,17 +296,23 @@ fn draw_card(
             ui.painter().rect_filled(btn_rect, 11.0, del_bg);
         }
         
-        ui.painter().text(
-            btn_rect.center(),
-            Align2::CENTER_CENTER,
-            "✕",
-            FontId::proportional(13.0),
-            if btn.hovered() {
-                if dark { Color32::from_rgb(243, 139, 168) } else { Color32::from_rgb(220, 38, 38) }
-            } else {
-                muted(dark)
-            },
+        let del_color = if btn.hovered() {
+            if dark { Color32::from_rgb(243, 139, 168) } else { Color32::from_rgb(220, 38, 38) }
+        } else {
+            muted(dark)
+        };
+
+        let center = btn_rect.center();
+        let d = 3.5;
+        ui.painter().line_segment(
+            [center + vec2(-d, -d), center + vec2(d, d)],
+            egui::Stroke::new(1.5, del_color),
         );
+        ui.painter().line_segment(
+            [center + vec2(-d, d), center + vec2(d, -d)],
+            egui::Stroke::new(1.5, del_color),
+        );
+        
         if btn.clicked() {
             action.remove = Some(idx);
         }
@@ -243,8 +321,8 @@ fn draw_card(
     if resp.clicked() && action.remove.is_none() {
         action.select = Some(idx);
     }
-    // 拖动中设置排序载荷
-    if dragged {
-        resp.dnd_set_drag_payload(idx);
+    // 释放时接收拖拽排序
+    if let Some(payload) = resp.dnd_release_payload::<usize>() {
+        action.move_to = Some((*payload, idx));
     }
 }

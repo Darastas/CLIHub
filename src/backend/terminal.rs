@@ -14,7 +14,21 @@ use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::vte::ansi::{Processor, Rgb};
+use alacritty_terminal::index::{Column, Line};
 use crossbeam_channel::{unbounded, Receiver, Sender};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridPoint {
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionRange {
+    pub start: GridPoint,
+    pub end: GridPoint,
+}
+
 
 /// 把 alacritty 需要写回 PTY 的事件转发给应用层。
 pub struct HubListener {
@@ -81,6 +95,7 @@ pub struct Terminal {
     size: Arc<Mutex<(usize, usize)>>,
     cols: u16,
     rows: u16,
+    pub selection: Option<SelectionRange>,
 }
 
 impl Terminal {
@@ -109,6 +124,7 @@ impl Terminal {
             size,
             cols,
             rows,
+            selection: None,
         }
     }
 
@@ -158,6 +174,52 @@ impl Terminal {
     #[allow(dead_code)] // Phase 5 字体适配使用
     pub fn dimensions(&self) -> (u16, u16) {
         (self.cols, self.rows)
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        let sel = self.selection?;
+        
+        let mut start_line = sel.start.line;
+        let mut end_line = sel.end.line;
+        let mut start_col = sel.start.col;
+        let mut end_col = sel.end.col;
+        
+        if start_line > end_line || (start_line == end_line && start_col > end_col) {
+            std::mem::swap(&mut start_line, &mut end_line);
+            std::mem::swap(&mut start_col, &mut end_col);
+        }
+        
+        let grid = self.term.grid();
+        let display_offset = grid.display_offset();
+        let mut text = String::new();
+        
+        let mut line_texts = Vec::new();
+        for l in start_line..=end_line {
+            let actual_line = l as i32 + display_offset as i32;
+            let row = &grid[Line(actual_line)];
+            
+            let sc = if l == start_line { start_col } else { 0 };
+            let ec = if l == end_line { end_col } else { self.cols as usize - 1 };
+            
+            let mut line_str = String::new();
+            let mut trailing_spaces = 0;
+            for c in sc..=ec {
+                if c >= row.len() { break; }
+                let cell = &row[Column(c)];
+                if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) { continue; }
+                if cell.c == ' ' {
+                    trailing_spaces += 1;
+                } else {
+                    for _ in 0..trailing_spaces { line_str.push(' '); }
+                    trailing_spaces = 0;
+                    if !cell.flags.contains(alacritty_terminal::term::cell::Flags::HIDDEN) {
+                        line_str.push(cell.c);
+                    }
+                }
+            }
+            line_texts.push(line_str);
+        }
+        Some(line_texts.join("\n"))
     }
 }
 

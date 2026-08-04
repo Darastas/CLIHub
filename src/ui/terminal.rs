@@ -5,12 +5,10 @@
 //! - 输入：终端区获得焦点后，把 `Event::Text/Key/Paste` 转成字节流写回 PTY。
 //! - 缩放：按面板尺寸 × 字体度量计算行列数，同步 PTY 与网格。
 
-use alacritty_terminal::event::EventListener;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
-use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
-use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
+use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
 
 use crate::state::{Session, TerminalInstance};
 
@@ -43,7 +41,7 @@ impl TermTheme {
         Self {
             font_size: 15.0,
             font_family: egui::FontFamily::Monospace,
-            bold_family: egui::FontFamily::Name("jbmono-bold".into()),
+            bold_family: egui::FontFamily::Monospace,
             background: Color32::from_rgb(255, 255, 255),
             foreground: Color32::from_rgb(71, 85, 105), // Slate 600
             cursor: Color32::from_rgb(99, 102, 241), // Indigo 500
@@ -73,7 +71,7 @@ impl TermTheme {
         Self {
             font_size: 15.0,
             font_family: egui::FontFamily::Monospace,
-            bold_family: egui::FontFamily::Name("jbmono-bold".into()),
+            bold_family: egui::FontFamily::Monospace,
             background: Color32::from_rgb(30, 30, 30),    // #1E1E1E
             foreground: Color32::from_rgb(212, 212, 212), // #D4D4D4
             cursor: Color32::from_rgb(174, 175, 173),
@@ -175,7 +173,7 @@ pub fn show(
     
     ui.horizontal(|ui| {
         ui.add_space(12.0); // 左外边距
-        let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click());
+        let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click_and_drag());
         if resp.clicked() {
             resp.request_focus();
         }
@@ -219,6 +217,32 @@ pub fn show(
         // 按网格尺寸换算行列数并同步到当前标签
         let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
         let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
+        
+        if let Some(pos) = resp.interact_pointer_pos() {
+            if grid_rect.contains(pos) {
+                let col = ((pos.x - grid_rect.min.x) / col_w).floor().max(0.0) as usize;
+                let line = ((pos.y - grid_rect.min.y) / row_h).floor().max(0.0) as usize;
+                
+                let gp = crate::backend::terminal::GridPoint { line, col };
+                
+                if let Some(t) = &mut tab.terminal {
+                    if resp.drag_started() {
+                        t.selection = Some(crate::backend::terminal::SelectionRange { start: gp, end: gp });
+                    } else if resp.dragged() {
+                        if let Some(sel) = &mut t.selection {
+                            sel.end = gp;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if resp.clicked() {
+            if let Some(t) = &mut tab.terminal {
+                t.selection = None;
+            }
+        }
+
         if let Some(t) = &mut tab.terminal {
             t.resize(cols, rows);
         }
@@ -236,27 +260,11 @@ pub fn show(
 
         // 渲染网格
         if let Some(t) = &tab.terminal {
-            paint_grid(ui, theme, &t.term, grid_rect, col_w, row_h, cols, rows, focused);
+            paint_grid(ui, theme, t, grid_rect, col_w, row_h, cols, rows, focused);
         }
     });
 
-    ui.add_space(12.0);
 
-    // ---- 底部快捷提示条 ----
-    let (hint_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), HINT_H), Sense::hover());
-    let (hint_bg, hint_fg) = if theme.is_dark() {
-        (Color32::from_rgb(30, 32, 48), Color32::from_rgb(147, 153, 178)) // Mantle and Overlay0
-    } else {
-        (Color32::from_rgb(248, 250, 252), Color32::from_rgb(148, 163, 184)) // Slate 50/400
-    };
-    ui.painter().rect_filled(hint_rect, 0.0, hint_bg);
-    ui.painter().text(
-        Pos2::new(hint_rect.min.x + 16.0, hint_rect.center().y),
-        Align2::LEFT_CENTER,
-        "Click terminal to type · Ctrl+C interrupt · Scroll to view history",
-        FontId::proportional(11.0),
-        hint_fg,
-    );
 
     action
 }
@@ -265,10 +273,10 @@ pub fn show(
 // 渲染
 // ---------------------------------------------------------------------------
 
-fn paint_grid<T: EventListener>(
+fn paint_grid(
     ui: &mut Ui,
     theme: &TermTheme,
-    term: &Term<T>,
+    terminal: &crate::backend::terminal::Terminal,
     rect: Rect,
     col_w: f32,
     row_h: f32,
@@ -276,6 +284,7 @@ fn paint_grid<T: EventListener>(
     rows: u16,
     focused: bool,
 ) {
+    let term = &terminal.term;
     let grid = term.grid();
     let colors = term.colors();
     let display_offset = grid.display_offset();
@@ -379,6 +388,32 @@ fn paint_grid<T: EventListener>(
                 *c,
             );
         }
+        
+        // 3.5) 选区背景
+        if let Some(sel) = terminal.selection {
+            let mut s_line = sel.start.line;
+            let mut e_line = sel.end.line;
+            let mut s_col = sel.start.col;
+            let mut e_col = sel.end.col;
+            if s_line > e_line || (s_line == e_line && s_col > e_col) {
+                std::mem::swap(&mut s_line, &mut e_line);
+                std::mem::swap(&mut s_col, &mut e_col);
+            }
+            
+            if li >= s_line && li <= e_line {
+                let sc = if li == s_line { s_col } else { 0 };
+                let ec = if li == e_line { e_col } else { cols as usize - 1 };
+                
+                let x0 = origin.x + sc as f32 * col_w;
+                let x1 = origin.x + (ec + 1) as f32 * col_w;
+                let sel_bg = if theme.is_dark() { Color32::from_white_alpha(50) } else { Color32::from_rgb(186, 212, 255) };
+                painter.rect_filled(
+                    Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
+                    0.0,
+                    sel_bg,
+                );
+            }
+        }
 
         // 4) 画文字（painter.text 经实测可渲染；粗体用独立字体族）
         let font_id = FontId::new(theme.font_size, theme.font_family.clone());
@@ -471,9 +506,18 @@ fn rgb_to_color32(rgb: Rgb) -> Color32 {
 fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
     let events = ui.input(|i| i.events.clone());
     let mut out: Vec<u8> = Vec::new();
+    
     for ev in events {
         match ev {
-            egui::Event::Copy => out.extend_from_slice(b"\x03"), // Ctrl+C 兜底（部分平台）
+            egui::Event::Copy => {
+                if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
+                    if !sel.is_empty() {
+                        ui.ctx().copy_text(sel);
+                        continue;
+                    }
+                }
+                out.extend_from_slice(b"\x03"); // Ctrl+C 兜底
+            }
             egui::Event::Paste(text) => out.extend_from_slice(text.as_bytes()),
             egui::Event::Text(text) => {
                 for ch in text.chars() {
@@ -491,6 +535,15 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                 modifiers,
                 ..
             } => {
+                if modifiers.ctrl && key == egui::Key::C && tab.terminal.as_ref().map_or(false, |t| t.selection.is_some()) {
+                    if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
+                        if !sel.is_empty() {
+                            ui.ctx().copy_text(sel);
+                            continue;
+                        }
+                    }
+                }
+                
                 if let Some(bytes) = map_key(key, &modifiers) {
                     out.extend_from_slice(&bytes);
                 }
@@ -575,8 +628,7 @@ fn draw_tab(
 ) -> Option<TerminalAction> {
     let label = format!("{} {}", session.name, ti + 1);
     let font_id = FontId::proportional(12.5);
-    let char_w = ui.fonts_mut(|f| f.glyph_width(&font_id, ' '));
-    let text_w = char_w * label.chars().count() as f32;
+    let text_w = ui.painter().layout_no_wrap(label.clone(), font_id.clone(), Color32::WHITE).rect.width();
     let tab_w = text_w + 40.0;
     let tab_h = 32.0;
     let (tab_rect, resp) = ui.allocate_exact_size(vec2(tab_w, tab_h), Sense::click());
@@ -618,20 +670,30 @@ fn draw_tab(
         vec2(16.0, 16.0),
     );
     let close_resp = ui.interact(close_rect, Id::new(("tab-close", ti)), Sense::click());
+    
+    if close_resp.hovered() {
+        ui.painter().rect_filled(close_rect, 4.0, Color32::from_rgb(220, 60, 50));
+    }
+    
     let close_color = if close_resp.hovered() {
-        Color32::from_rgb(220, 60, 50)
+        Color32::WHITE
     } else if theme.is_dark() {
         Color32::from_gray(140)
     } else {
         Color32::from_gray(120)
     };
-    ui.painter().text(
-        close_rect.center(),
-        Align2::CENTER_CENTER,
-        "✕",
-        FontId::proportional(10.0),
-        close_color,
+    
+    let center = close_rect.center();
+    let d = 3.5;
+    ui.painter().line_segment(
+        [center + vec2(-d, -d), center + vec2(d, d)],
+        egui::Stroke::new(1.5, close_color),
     );
+    ui.painter().line_segment(
+        [center + vec2(-d, d), center + vec2(d, -d)],
+        egui::Stroke::new(1.5, close_color),
+    );
+    
     if close_resp.clicked() {
         return Some(TerminalAction::KillTab(ti));
     }

@@ -18,7 +18,8 @@ enum CaptionIcon {
     Close,
 }
 
-pub fn show(ui: &mut Ui) {
+pub fn show(ui: &mut Ui) -> bool {
+    let mut settings_clicked = false;
     let (rect, resp) = ui.allocate_exact_size(
         vec2(ui.available_width(), TITLEBAR_H),
         Sense::click_and_drag(),
@@ -51,6 +52,27 @@ pub fn show(ui: &mut Ui) {
         FontId::proportional(13.0),
         title_color,
     );
+    
+    // Settings button next to title
+    let settings_font = FontId::proportional(12.0);
+    let settings_text = "Settings";
+    let text_w = ui.painter().layout_no_wrap(settings_text.to_owned(), settings_font.clone(), Color32::WHITE).rect.width();
+    let settings_rect = Rect::from_min_size(
+        Pos2::new(rect.min.x + 90.0, rect.center().y - 8.0),
+        vec2(text_w + 16.0, 16.0)
+    );
+    let settings_resp = ui.interact(settings_rect, Id::new("titlebar_settings"), Sense::click());
+    let txt_color = if settings_resp.hovered() { title_color } else { title_color.gamma_multiply(0.6) };
+    ui.painter().text(
+        settings_rect.center(),
+        Align2::CENTER_CENTER,
+        settings_text,
+        settings_font,
+        txt_color,
+    );
+    if settings_resp.clicked() {
+        settings_clicked = true;
+    }
 
     // 底部细分隔线
     let border = if dark {
@@ -88,6 +110,8 @@ pub fn show(ui: &mut Ui) {
     for cmd in [min_cmd, max_cmd, close_cmd].into_iter().flatten() {
         ui.ctx().send_viewport_cmd(cmd);
     }
+    
+    settings_clicked
 }
 
 /// 绘制一个标题栏控件，返回点击后要发送的命令。
