@@ -16,6 +16,7 @@ pub struct SidebarAction {
     pub remove: Option<usize>,
     pub add: bool,
     pub settings: bool,
+    pub edit: Option<usize>,
     /// 拖拽排序：(从哪个索引 → 放到哪个索引)
     pub move_to: Option<(usize, usize)>,
 }
@@ -58,8 +59,8 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction
     // ---- SESSIONS 分区标题 + 新增按钮 ----
     ui.add_space(16.0);
     ui.horizontal(|ui| {
-        ui.add_space(4.0);
-        ui.label(RichText::new("SESSIONS").size(11.0).color(muted(dark)).strong());
+        ui.add_space(8.0);
+        ui.label(RichText::new("SESSIONS").size(12.0).color(muted(dark)).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let add = egui::Button::new(RichText::new("＋").size(16.0).color(ACCENT)).frame(false);
             if ui
@@ -187,11 +188,11 @@ fn draw_card(
     let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
     let hover_color = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
     
-    // Sleek monochrome selected background instead of blazing blue
+    // HeroUI Primary color for selected background (subtle)
     let sel_color = if dark { 
-        Color32::from_white_alpha(24) 
+        Color32::from_rgba_premultiplied(0, 111, 238, 40)
     } else { 
-        Color32::from_black_alpha(18) 
+        Color32::from_rgba_premultiplied(0, 111, 238, 24)
     };
     
     // Interpolate background color
@@ -212,20 +213,22 @@ fn draw_card(
     let fg_cwd = lerp_color(cwd_normal, cwd_sel, sel_factor);
 
     let dot_normal = status_color(s.status());
-    let dot_sel = dot_normal; // Keep the original dot color (green/red) even when selected for a pro look
+    let dot_sel = Color32::WHITE; // Pure white when selected on the blue background
     let fg_dot = lerp_color(dot_normal, dot_sel, sel_factor);
     
-    let render_card = |painter: &egui::Painter, rect: Rect, alpha: f32, stroke: bool| {
+    let render_card = |painter: &egui::Painter, rect: Rect, alpha: f32, stroke: bool, is_hovered_for_delete: bool| {
         let mut bg = bg;
         bg[3] = (bg[3] as f32 * alpha) as u8;
         if bg != Color32::TRANSPARENT {
-            painter.rect_filled(rect, 8.0, bg);
+            painter.rect_filled(rect, 12.0, bg);
         }
+        
+        // Drag outline
         if stroke {
             painter.rect_stroke(
                 rect,
-                8.0,
-                Stroke::new(1.5, ACCENT),
+                12.0,
+                Stroke::new(2.0, Color32::from_rgb(0, 111, 238).gamma_multiply(0.5)),
                 egui::StrokeKind::Inside,
             );
         }
@@ -236,30 +239,38 @@ fn draw_card(
         
         let text_start_x = rect.min.x + 12.0;
         painter.text(
-            Pos2::new(text_start_x, rect.min.y + 10.0),
-            Align2::LEFT_TOP,
-            status_dot(s.status()),
-            FontId::proportional(11.0),
-            fg_dot,
-        );
-        painter.text(
-            Pos2::new(text_start_x + 16.0, rect.min.y + 8.0),
+            Pos2::new(text_start_x, rect.min.y + 8.0),
             Align2::LEFT_TOP,
             &s.name,
             FontId::new(14.0, egui::FontFamily::Monospace),
             fg_name,
         );
         painter.text(
-            Pos2::new(text_start_x + 16.0, rect.min.y + 27.0),
+            Pos2::new(text_start_x, rect.min.y + 27.0),
             Align2::LEFT_TOP,
             s.cwd.display().to_string(),
             FontId::new(11.5, egui::FontFamily::Monospace),
             fg_cwd,
         );
+        
+        // Draw elegant vector status indicator on the right side if delete button is not shown
+        if !is_hovered_for_delete {
+            let dot_center = Pos2::new(rect.right() - 20.0, rect.center().y);
+            match s.status() {
+                crate::state::SessionStatus::Running => { painter.circle_filled(dot_center, 4.0, fg_dot); },
+                crate::state::SessionStatus::Idle => { painter.circle_stroke(dot_center, 3.5, Stroke::new(1.5, fg_dot)); },
+                crate::state::SessionStatus::Failed => {
+                    let d = 3.0;
+                    painter.line_segment([dot_center - vec2(d, d), dot_center + vec2(d, d)], Stroke::new(1.5, fg_dot));
+                    painter.line_segment([dot_center - vec2(d, -d), dot_center + vec2(d, -d)], Stroke::new(1.5, fg_dot));
+                },
+                crate::state::SessionStatus::Exited => { painter.circle_stroke(dot_center, 3.5, Stroke::new(1.0, fg_dot)); },
+            }
+        }
     };
 
     // Draw the original card (faint if dragged)
-    render_card(ui.painter(), bg_rect, opacity, false);
+    render_card(ui.painter(), bg_rect, opacity, false, hovered && !dragged);
 
     if dragged {
         resp.dnd_set_drag_payload(idx);
@@ -274,49 +285,20 @@ fn draw_card(
             let opaque_bg = if dark { Color32::from_rgb(45, 45, 45) } else { Color32::from_rgb(240, 240, 240) };
             painter.rect_filled(drag_rect, 8.0, opaque_bg);
             
-            render_card(&painter, drag_rect, 1.0, true);
+            render_card(&painter, drag_rect, 1.0, true, false);
         }
     }
 
-    // 悬浮时右侧删除按钮
-    if hovered && !dragged {
-        let btn_rect = Rect::from_center_size(
-            Pos2::new(bg_rect.right() - 20.0, bg_rect.center().y),
-            vec2(22.0, 22.0),
-        );
-        let btn = ui.interact(btn_rect, Id::new(("remove-session", idx)), Sense::click());
-        
-        let del_bg = if btn.hovered() {
-            if dark { Color32::from_rgb(243, 139, 168).linear_multiply(0.2) } else { Color32::from_rgb(254, 226, 226) }
-        } else {
-            Color32::TRANSPARENT
-        };
-        
-        if del_bg != Color32::TRANSPARENT {
-            ui.painter().rect_filled(btn_rect, 11.0, del_bg);
+    resp.context_menu(|ui| {
+        if ui.button("Edit").clicked() {
+            action.edit = Some(idx);
+            ui.close();
         }
-        
-        let del_color = if btn.hovered() {
-            if dark { Color32::from_rgb(243, 139, 168) } else { Color32::from_rgb(220, 38, 38) }
-        } else {
-            muted(dark)
-        };
-
-        let center = btn_rect.center();
-        let d = 3.5;
-        ui.painter().line_segment(
-            [center + vec2(-d, -d), center + vec2(d, d)],
-            egui::Stroke::new(1.5, del_color),
-        );
-        ui.painter().line_segment(
-            [center + vec2(-d, d), center + vec2(d, -d)],
-            egui::Stroke::new(1.5, del_color),
-        );
-        
-        if btn.clicked() {
+        if ui.button("Delete").clicked() {
             action.remove = Some(idx);
+            ui.close();
         }
-    }
+    });
 
     if resp.clicked() && action.remove.is_none() {
         action.select = Some(idx);

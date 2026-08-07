@@ -5,6 +5,7 @@
 //! - 输入：终端区获得焦点后，把 `Event::Text/Key/Paste` 转成字节流写回 PTY。
 //! - 缩放：按面板尺寸 × 字体度量计算行列数，同步 PTY 与网格。
 
+use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
@@ -174,7 +175,8 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.add_space(12.0); // 左外边距
         let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click_and_drag());
-        if resp.clicked() {
+        // 点击终端区域或切换 session 后自动获取焦点，确保 IME 立即可用
+        if resp.clicked() || (input_enabled && !resp.has_focus()) {
             resp.request_focus();
         }
         let focused = resp.has_focus();
@@ -218,6 +220,7 @@ pub fn show(
         let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
         let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
         
+
         if let Some(pos) = resp.interact_pointer_pos() {
             if grid_rect.contains(pos) {
                 let col = ((pos.x - grid_rect.min.x) / col_w).floor().max(0.0) as usize;
@@ -256,11 +259,122 @@ pub fn show(
                 session.error = Some(err);
             }
         }
-        handle_scroll(ui, tab);
+        
+        // 启用 IME — 位置跟随光标而非整个网格
+        if focused {
+            let ime_rect = if let Some(t) = &mut tab.terminal {
+                let cursor_pt = t.term.grid().cursor.point;
+                let display_offset = t.term.grid().display_offset();
+                let cx = grid_rect.min.x + cursor_pt.column.0 as f32 * col_w;
+                let cy = grid_rect.min.y + (cursor_pt.line.0 as i32 + display_offset as i32) as f32 * row_h;
+                Rect::from_min_size(Pos2::new(cx, cy), vec2(col_w, row_h))
+            } else {
+                grid_rect
+            };
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMERect(ime_rect));
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMEAllowed(true));
+        }
+
+        handle_scroll(ui, tab, resp.hovered(), grid_rect);
 
         // 渲染网格
-        if let Some(t) = &tab.terminal {
+        if let Some(t) = &mut tab.terminal {
             paint_grid(ui, theme, t, grid_rect, col_w, row_h, cols, rows, focused);
+            
+            // 绘制交互式滚动条
+            let history = t.term.grid().history_size();
+            let screen = t.term.grid().screen_lines();
+            if history > 0 {
+                let track_w = 8.0;
+                let track_rect = Rect::from_min_max(
+                    Pos2::new(term_rect.max.x - track_w - 2.0, term_rect.min.y + 2.0),
+                    Pos2::new(term_rect.max.x - 2.0, term_rect.max.y - 2.0)
+                );
+                
+                // 独立分配一个拖拽响应区
+                let scroll_resp = ui.interact(track_rect, ui.id().with("scrollbar"), Sense::click_and_drag());
+                let painter = ui.painter();
+                
+                let is_hovered = scroll_resp.hovered() || scroll_resp.dragged();
+                let bg_color = if is_hovered { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(20) };
+                painter.rect_filled(track_rect, 4.0, bg_color);
+                
+                let total = (history + screen) as f32;
+                let thumb_h = (screen as f32 / total * track_rect.height()).max(20.0);
+                
+                let drag_id = ui.id().with("scrollbar_drag");
+                if scroll_resp.drag_started() {
+                    if let Some(pos) = scroll_resp.interact_pointer_pos() {
+                        let display_offset = t.term.grid().display_offset() as f32;
+                        let current_thumb_y = track_rect.max.y - thumb_h - (display_offset / history as f32) * (track_rect.height() - thumb_h);
+                        let grab_offset = pos.y - current_thumb_y;
+                        ui.data_mut(|d| d.insert_temp(drag_id, grab_offset));
+                    }
+                }
+                
+                // 处理拖拽 (无极滑动)
+                if scroll_resp.dragged() {
+                    if let Some(pos) = scroll_resp.interact_pointer_pos() {
+                        let grab_offset: f32 = ui.data_mut(|d| d.get_temp(drag_id).unwrap_or(thumb_h / 2.0));
+                        let new_thumb_y = pos.y - grab_offset;
+                        let track_scrollable = track_rect.height() - thumb_h;
+                        if track_scrollable > 0.0 {
+                            let ratio = 1.0 - ((new_thumb_y - track_rect.min.y) / track_scrollable).clamp(0.0, 1.0);
+                            let new_offset = (ratio * history as f32).round() as usize;
+                            let current_offset = t.term.grid().display_offset();
+                            let lines_delta = new_offset as i32 - current_offset as i32;
+                            if lines_delta != 0 {
+                                t.scroll_display(lines_delta);
+                            }
+                        }
+                    }
+                }
+                
+                // 获取最新的 offset
+                let display_offset = t.term.grid().display_offset() as f32;
+                let y = track_rect.max.y - thumb_h - (display_offset / history as f32) * (track_rect.height() - thumb_h);
+                
+                let thumb_rect = Rect::from_min_max(
+                    Pos2::new(track_rect.min.x + 1.0, y),
+                    Pos2::new(track_rect.max.x - 1.0, y + thumb_h)
+                );
+                
+                let thumb_color = if is_hovered { Color32::from_white_alpha(150) } else { Color32::from_white_alpha(80) };
+                painter.rect_filled(thumb_rect, 3.0, thumb_color);
+            }
+        }
+
+        // 在光标位置渲染 IME 预编辑文字（拼音）
+        if !tab.ime_preedit.is_empty() {
+            if let Some(t) = &tab.terminal {
+                let cursor_pt = t.term.grid().cursor.point;
+                let cx = grid_rect.min.x + cursor_pt.column.0 as f32 * col_w;
+                let cy = grid_rect.min.y + cursor_pt.line.0 as f32 * row_h;
+                let painter = ui.painter().with_clip_rect(grid_rect);
+                let preedit_font = FontId::new(theme.font_size, theme.font_family.clone());
+                // 背景条
+                let text_width = painter.layout_no_wrap(
+                    tab.ime_preedit.clone(), preedit_font.clone(), Color32::WHITE
+                ).rect.width();
+                let bg_rect = Rect::from_min_size(
+                    Pos2::new(cx, cy),
+                    vec2(text_width + 4.0, row_h),
+                );
+                painter.rect_filled(bg_rect, 2.0, Color32::from_rgb(60, 60, 80));
+                // 文字
+                painter.text(
+                    Pos2::new(cx + 2.0, cy),
+                    Align2::LEFT_TOP,
+                    &tab.ime_preedit,
+                    preedit_font,
+                    Color32::from_rgb(120, 180, 255),
+                );
+                // 下划线
+                painter.line_segment(
+                    [Pos2::new(cx, cy + row_h - 1.0), Pos2::new(cx + text_width + 4.0, cy + row_h - 1.0)],
+                    egui::Stroke::new(1.5, Color32::from_rgb(120, 180, 255)),
+                );
+            }
         }
     });
 
@@ -291,14 +405,17 @@ fn paint_grid(
     let painter = ui.painter().with_clip_rect(rect);
     let origin = rect.min;
 
-    // 收集可见行 → 每行的单元格
+    // 收集可见行 -> 每行的单元格
     let mut lines: Vec<Vec<&Cell>> = Vec::new();
+    let mut current_line = None;
     for item in grid.display_iter() {
-        let li = item.point.line.0 as usize;
-        if li >= lines.len() {
-            lines.resize(li + 1, Vec::new());
+        if Some(item.point.line) != current_line {
+            lines.push(Vec::new());
+            current_line = Some(item.point.line);
         }
-        lines[li].push(item.cell);
+        if let Some(last_row) = lines.last_mut() {
+            last_row.push(item.cell);
+        }
     }
 
     for (li, cells) in lines.iter().enumerate() {
@@ -337,6 +454,8 @@ fn paint_grid(
         let mut cur_str = String::new();
         let mut cur_color = Color32::TRANSPARENT;
         let mut cur_bold = false;
+        let mut last_ci: Option<usize> = None;
+        
         for (ci, cell) in cells.iter().enumerate() {
             let flags = cell.flags;
             if flags.contains(Flags::WIDE_CHAR_SPACER) {
@@ -362,9 +481,13 @@ fn paint_grid(
                     spans.push((sc, std::mem::take(&mut cur_str), cur_color, cur_bold));
                 }
                 cur_color = Color32::TRANSPARENT;
+                last_ci = Some(ci);
                 continue;
             }
-            if cur_start.is_none() || cur_color != color || cur_bold != is_bold {
+            
+            // 如果颜色、粗体改变，或者列索引不连续（中间有空格或被跳过的 wide char spacer），则断开 span
+            let is_contiguous = last_ci.map_or(true, |l| ci == l + 1);
+            if cur_start.is_none() || cur_color != color || cur_bold != is_bold || !is_contiguous {
                 if let Some(sc) = cur_start.take() {
                     spans.push((sc, std::mem::take(&mut cur_str), cur_color, cur_bold));
                 }
@@ -373,6 +496,7 @@ fn paint_grid(
                 cur_bold = is_bold;
             }
             cur_str.push(ch);
+            last_ci = Some(ci);
         }
         if let Some(sc) = cur_start.take() {
             spans.push((sc, cur_str, cur_color, cur_bold));
@@ -430,10 +554,12 @@ fn paint_grid(
         }
     }
 
-    // ---- 光标 ----
+    // ---- 光标（仅当终端未隐藏光标时绘制）----
+    use alacritty_terminal::term::TermMode;
+    let show_cursor = term.mode().contains(TermMode::SHOW_CURSOR);
     let cursor_point = grid.cursor.point;
-    let viewport_line = cursor_point.line.0 - display_offset as i32;
-    if viewport_line >= 0 && (viewport_line as usize) < lines.len() {
+    let viewport_line = cursor_point.line.0 + display_offset as i32;
+    if show_cursor && viewport_line >= 0 && (viewport_line as usize) < lines.len() {
         let mut col = cursor_point.column.0;
         let cell = &grid[cursor_point];
         if cell.flags.contains(Flags::WIDE_CHAR_SPACER) && col > 0 {
@@ -470,7 +596,6 @@ fn paint_grid(
             }
         }
     }
-
     let _ = rows;
 }
 
@@ -508,7 +633,39 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
     let mut out: Vec<u8> = Vec::new();
     
     for ev in events {
+        // 临时记录所有事件到文件，方便排查输入法重发问题
+        if let egui::Event::Ime(_) | egui::Event::Text(_) | egui::Event::Key { .. } = &ev {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("d:\\Terminal desk\\events.log") {
+                let _ = writeln!(f, "EVENT: {:?}", ev);
+            }
+        }
+        
         match ev {
+            // ---- IME 事件 ----
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
+                // 非空 preedit = 正在输入拼音；空 preedit = IME 取消
+                tab.ime_composing = !text.is_empty();
+                tab.ime_preedit = text;
+            }
+            egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
+                // 用户确认了输入法选字，把最终文字写入 PTY
+                tab.ime_composing = false;
+                tab.ime_preedit.clear();
+                tab.ime_just_committed_text = Some(text.clone());
+                out.extend_from_slice(text.as_bytes());
+            }
+            #[allow(deprecated)]
+            egui::Event::Ime(_) => {}
+
+            // ---- 以下事件在 IME 组合期间全部跳过 ----
+            _ if tab.ime_composing => {
+                // IME 正在编辑拼音时，Enter / Backspace / Text 等
+                // 都属于输入法内部操作，不得转发给 PTY
+                continue;
+            }
+
+            // ---- 普通事件（非 IME 组合态）----
             egui::Event::Copy => {
                 if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
                     if !sel.is_empty() {
@@ -520,6 +677,18 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
             }
             egui::Event::Paste(text) => out.extend_from_slice(text.as_bytes()),
             egui::Event::Text(text) => {
+                // IME Commit 后紧跟的 Text 事件可能是被拆分的单个字符或整个字符串。
+                // 只要它能跟 ime_just_committed_text 匹配上，我们就吞掉它。
+                if let Some(mut committed) = tab.ime_just_committed_text.take() {
+                    if committed.starts_with(text.as_str()) {
+                        committed.drain(..text.len());
+                        if !committed.is_empty() {
+                            tab.ime_just_committed_text = Some(committed);
+                        }
+                        continue;
+                    }
+                }
+                
                 for ch in text.chars() {
                     let c = ch as u32;
                     if c < 0x20 || c == 0x7f {
@@ -605,15 +774,28 @@ fn key_to_char(key: egui::Key) -> Option<char> {
     }
 }
 
-fn handle_scroll(ui: &mut Ui, tab: &mut TerminalInstance) {
-    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-    if scroll == 0.0 {
+fn handle_scroll(ui: &mut Ui, tab: &mut TerminalInstance, hovered: bool, rect: Rect) {
+    let pointer_in = ui.input(|i| {
+        i.pointer.latest_pos().map_or(false, |p| rect.contains(p))
+    });
+    if !hovered && !pointer_in {
         return;
     }
-    let lines = (scroll / 40.0).round() as i32;
+    
+    // 使用 smooth_scroll_delta 支持触控板无极滚动和普通鼠标滚轮。
+    let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+    if scroll_y != 0.0 {
+        tab.scroll_accum += scroll_y;
+    }
+    
+    // 每 15 像素累积触发一行滚动（1格标准滚轮约50像素，可滚动3行）
+    let pixels_per_line = 15.0;
+    let lines = (tab.scroll_accum / pixels_per_line).trunc() as i32;
+    
     if lines != 0 {
+        tab.scroll_accum -= (lines as f32) * pixels_per_line;
         if let Some(t) = &mut tab.terminal {
-            t.scroll_display(-lines);
+            t.scroll_display(lines);
         }
     }
 }
@@ -633,20 +815,20 @@ fn draw_tab(
     let tab_h = 32.0;
     let (tab_rect, resp) = ui.allocate_exact_size(vec2(tab_w, tab_h), Sense::click());
 
-    // 背景：激活 = 终端底色（与内容区连成一体），非激活 = 透明/悬浮灰
+    // HeroUI style Pill tabs
     let bg = if is_active {
         theme.background
     } else if resp.hovered() {
         if theme.is_dark() {
-            Color32::from_gray(45)
+            Color32::from_gray(39) // Zinc-800
         } else {
-            Color32::from_rgb(241, 245, 249)
+            Color32::from_rgb(228, 228, 231) // Zinc-200
         }
     } else {
         Color32::TRANSPARENT
     };
     if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(tab_rect, 8.0, bg);
+        ui.painter().rect_filled(tab_rect, 16.0, bg); // Pill shape
     }
 
     let label_color = if is_active {

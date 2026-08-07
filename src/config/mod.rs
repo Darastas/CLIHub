@@ -98,7 +98,7 @@ pub fn default_entries() -> Vec<CliEntry> {
 /// 平台默认 shell。
 pub fn default_shell() -> String {
     if cfg!(windows) {
-        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+        "powershell.exe".to_string()
     } else {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
     }

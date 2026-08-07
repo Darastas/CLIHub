@@ -8,7 +8,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use crossbeam_channel::{unbounded, Receiver};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-
 /// 一个被 PTY 接管的子进程及其读写端。
 pub struct PtyHandle {
     pub master: Box<dyn MasterPty + Send>,
@@ -49,6 +48,9 @@ impl PtyHandle {
         for (k, v) in std::env::vars() {
             cmd.env(k, v);
         }
+        // 显式声明终端类型和真色彩支持，这样 omp/claude 就会输出彩色图标/渐变色
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
         let child = pair
             .slave
             .spawn_command(cmd)
@@ -102,7 +104,6 @@ impl PtyHandle {
     }
 
     /// 调整窗口行列数；尺寸未变化时跳过，避免每帧重复 resize
-    /// 触发 ConPTY 反复重绘（表现为海量 `ESC[K` 清屏指令）。
     pub fn resize(&mut self, cols: u16, rows: u16) {
         if cols == 0 || rows == 0 {
             return;

@@ -73,20 +73,7 @@ pub fn show(ui: &mut Ui) -> bool {
     if settings_resp.clicked() {
         settings_clicked = true;
     }
-
-    // 底部细分隔线
-    let border = if dark {
-        Color32::from_rgb(49, 50, 68) // Surface0
-    } else {
-        Color32::from_rgb(226, 232, 240) // Slate 200
-    };
-    ui.painter().line_segment(
-        [
-            Pos2::new(rect.min.x, rect.bottom()),
-            Pos2::new(rect.right(), rect.bottom()),
-        ],
-        Stroke::new(1.0, border),
-    );
+    // (Removed bottom border for seamless HeroUI look)
 
     // 右上角三个控件（从右到左：关闭 / 最大化 / 最小化）
     let maxed = ui.input(|i| i.viewport().maximized == Some(true));
@@ -124,19 +111,20 @@ fn draw_caption_button(ui: &mut Ui, titlebar: Rect, x: f32, icon: CaptionIcon) -
 
     // 悬浮背景：关闭键红色，其余灰
     let hover_bg = if dark {
-        Color32::from_rgb(69, 71, 90) // Surface1
+        Color32::from_rgb(39, 39, 42) // Zinc-800
     } else {
-        Color32::from_rgb(226, 232, 240) // Slate 200
+        Color32::from_rgb(228, 228, 231) // Zinc-200
     };
     let bg = if hovered && is_close {
-        Color32::from_rgb(217, 38, 38) // slightly softer red
+        Color32::from_rgb(228, 62, 70) // Soft but bright red
     } else if hovered {
         hover_bg
     } else {
         Color32::TRANSPARENT
     };
     if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(btn_rect, 0.0, bg);
+        // Pill-shaped hover background, slightly shrunken
+        ui.painter().rect_filled(btn_rect.shrink2(vec2(6.0, 4.0)), 6.0, bg);
     }
 
     // 图标颜色：关闭键悬浮时为白，其余灰

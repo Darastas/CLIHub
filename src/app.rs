@@ -21,6 +21,11 @@ pub struct HubApp {
     new_name: String,
     new_command: String,
     new_cwd: String,
+    // 编辑会话对话框状态
+    editing_cli: Option<usize>,
+    edit_name: String,
+    edit_command: String,
+    edit_cwd: String,
     // 设置窗口状态
     show_settings: bool,
     settings_draft: ThemeSettings,
@@ -70,6 +75,54 @@ fn setup_fonts(ctx: &egui::Context) {
         })
     };
 
+    // Nerd Font（Powerline / 图标字形）—— 从用户字体目录加载
+    let user_fonts = format!(
+        r"{}\AppData\Local\Microsoft\Windows\Fonts",
+        std::env::var("USERPROFILE").unwrap_or_default()
+    );
+    for nf_file in [
+        "JetBrainsMonoNerdFontMono-Regular.ttf",
+        "JetBrainsMonoNerdFontMono-Bold.ttf",
+    ] {
+        let nf_path = format!(r"{}\{}", user_fonts, nf_file);
+        if let Some((name, data)) = load(&nf_path) {
+            fonts
+                .font_data
+                .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
+            if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
+                mono.push(name.clone());
+            }
+            // 也加入加粗族的回退链
+            if nf_file.contains("Bold") {
+                if let Some(bold) = fonts.families.get_mut(&FontFamily::Name("jbmono-bold".into())) {
+                    bold.push(name);
+                }
+            }
+        }
+    }
+    // 也尝试从系统字体目录加载
+    for nf_file in [
+        "JetBrainsMonoNerdFontMono-Regular.ttf",
+        "JetBrainsMonoNerdFontMono-Bold.ttf",
+    ] {
+        let nf_path = format!(r"C:\Windows\Fonts\{}", nf_file);
+        if !fonts.font_data.contains_key(nf_file) {
+            if let Some((name, data)) = load(&nf_path) {
+                fonts
+                    .font_data
+                    .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
+                if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
+                    mono.push(name.clone());
+                }
+                if nf_file.contains("Bold") {
+                    if let Some(bold) = fonts.families.get_mut(&FontFamily::Name("jbmono-bold".into())) {
+                        bold.push(name);
+                    }
+                }
+            }
+        }
+    }
+
     // UI 拉丁字体：Segoe UI 放最前
     if let Some((name, data)) = load(r"C:\Windows\Fonts\segoeui.ttf") {
         fonts
@@ -115,34 +168,58 @@ fn app_visuals(dark: bool) -> egui::Visuals {
         egui::Visuals::light()
     };
     
-    // 全局增加圆角，提升现代感
-    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(8);
-    v.widgets.inactive.corner_radius = egui::CornerRadius::same(8);
-    v.widgets.hovered.corner_radius = egui::CornerRadius::same(8);
-    v.widgets.active.corner_radius = egui::CornerRadius::same(8);
-    v.window_corner_radius = egui::CornerRadius::same(12);
+    // HeroUI v3 inspired global aesthetics
+    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(14);
+    v.widgets.inactive.corner_radius = egui::CornerRadius::same(14);
+    v.widgets.hovered.corner_radius = egui::CornerRadius::same(14);
+    v.widgets.active.corner_radius = egui::CornerRadius::same(14);
+    v.window_corner_radius = egui::CornerRadius::same(16); // Even softer windows
+    
+    // Remove aggressive borders
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
+    v.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+    v.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+    v.widgets.active.bg_stroke = egui::Stroke::NONE;
     
     if dark {
-        // VS Code 风格中性深灰：不偏色，最能承载 ANSI 彩色输出
-        v.panel_fill = Color32::from_rgb(37, 37, 38);   // #252526
-        v.window_fill = Color32::from_rgb(30, 30, 30);  // #1E1E1E
-        v.selection.bg_fill = Color32::from_rgb(38, 79, 120);
+        // HeroUI Zinc Dark
+        v.panel_fill = Color32::from_rgb(24, 24, 27);    // Zinc-900
+        v.window_fill = Color32::from_rgb(9, 9, 11);     // Zinc-950
+        v.selection.bg_fill = Color32::from_rgb(0, 111, 238); // HeroUI Primary
         v.selection.stroke = egui::Stroke::NONE;
-        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(45, 45, 45);
-        v.widgets.hovered.bg_fill = Color32::from_rgb(45, 45, 45);
-        v.widgets.noninteractive.bg_fill = Color32::from_rgb(30, 30, 30);
-        v.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60)); // #3C3C3C
+        
+        // Faded hover effects for buttons
+        v.widgets.inactive.bg_fill = Color32::TRANSPARENT; // Ghost buttons by default
+        v.widgets.hovered.bg_fill = Color32::from_rgb(39, 39, 42); // Zinc-800
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(39, 39, 42);
+        v.widgets.active.bg_fill = Color32::from_rgb(63, 63, 70); // Zinc-700
+        v.widgets.noninteractive.bg_fill = Color32::from_rgb(24, 24, 27);
+        
+        v.window_stroke = egui::Stroke::NONE; // Rely on shadows
     } else {
-        // Clean modern light theme
-        v.panel_fill = Color32::from_rgb(248, 250, 252);
+        // HeroUI Light
+        v.panel_fill = Color32::from_rgb(250, 250, 250); // Zinc-50
         v.window_fill = Color32::from_rgb(255, 255, 255);
-        v.selection.bg_fill = Color32::from_rgb(226, 232, 240);
+        v.selection.bg_fill = Color32::from_rgb(0, 111, 238); // HeroUI Primary
         v.selection.stroke = egui::Stroke::NONE;
-        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(241, 245, 249);
-        v.widgets.hovered.bg_fill = Color32::from_rgb(241, 245, 249);
-        v.widgets.noninteractive.bg_fill = Color32::from_rgb(255, 255, 255);
-        v.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(229, 231, 235));
+        
+        // Faded hover effects
+        v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+        v.widgets.hovered.bg_fill = Color32::from_rgb(228, 228, 231); // Zinc-200
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(228, 228, 231);
+        v.widgets.active.bg_fill = Color32::from_rgb(212, 212, 216); // Zinc-300
+        v.widgets.noninteractive.bg_fill = Color32::from_rgb(250, 250, 250);
+        
+        v.window_stroke = egui::Stroke::NONE;
     }
+    
+    // Add nice global shadows for popups and windows
+    v.window_shadow = egui::epaint::Shadow {
+        offset: [0, 12],
+        blur: 24,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 120 } else { 40 }),
+    };
     v
 }
 
@@ -172,6 +249,10 @@ impl HubApp {
             new_name: String::new(),
             new_command: String::new(),
             new_cwd: String::new(),
+            editing_cli: None,
+            edit_name: String::new(),
+            edit_command: String::new(),
+            edit_cwd: String::new(),
             show_settings: false,
             settings_draft: initial_theme,
         };
@@ -226,6 +307,28 @@ impl HubApp {
         self.sync_config();
     }
 
+    fn edit_cli(&mut self) {
+        if let Some(idx) = self.editing_cli {
+            let name = self.edit_name.trim().to_string();
+            let command = self.edit_command.trim().to_string();
+            if name.is_empty() || command.is_empty() {
+                return;
+            }
+            let cwd = if self.edit_cwd.trim().is_empty() {
+                home_dir()
+            } else {
+                PathBuf::from(self.edit_cwd.trim())
+            };
+            if let Some(s) = self.sessions.get_mut(idx) {
+                s.name = name;
+                s.command = command;
+                s.cwd = cwd;
+            }
+            self.editing_cli = None;
+            self.sync_config();
+        }
+    }
+
     fn remove_session(&mut self, idx: usize) {
         if idx >= self.sessions.len() {
             return;
@@ -247,6 +350,7 @@ impl HubApp {
             return;
         };
         s.error = None;
+
         let command = s.command.clone();
         let cwd = s.cwd.clone();
         let mut inst = TerminalInstance::new();
@@ -362,10 +466,22 @@ impl HubApp {
             self.settings_draft = self.config.theme.clone();
             self.show_settings = true;
         }
+        if let Some(idx) = side.edit {
+            if let Some(s) = self.sessions.get(idx) {
+                self.editing_cli = Some(idx);
+                self.edit_name = s.name.clone();
+                self.edit_command = s.command.clone();
+                self.edit_cwd = s.cwd.display().to_string();
+            }
+        }
 
         // 新增会话对话框
         if self.adding_cli {
             self.add_cli_dialog(ui);
+        }
+        // 编辑会话对话框
+        if self.editing_cli.is_some() {
+            self.edit_cli_dialog(ui);
         }
         // 设置窗口
         if self.show_settings {
@@ -374,7 +490,7 @@ impl HubApp {
 
         let mut action = None;
         // 弹窗打开时禁止键盘转发（避免输入串进终端）
-        let input_enabled = !self.adding_cli && !self.show_settings;
+        let input_enabled = !self.adding_cli && self.editing_cli.is_none() && !self.show_settings;
         // 终端主题（按配置构建一次）
         let theme = self.build_theme();
         egui::CentralPanel::default_margins().show(ui, |ui| {
@@ -567,15 +683,20 @@ impl HubApp {
                         
                     // Header with close button
                     ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.label(RichText::new("Add CLI Session").size(16.0).strong());
+                        ui.label(RichText::new("Add CLI Session").size(18.0).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                                let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
-                                let color = if resp.hovered() { Color32::from_rgb(220, 60, 50) } else { if dark { Color32::from_gray(140) } else { Color32::from_gray(120) } };
-                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "✕", egui::FontId::proportional(12.0), color);
-                                if resp.clicked() {
-                                    cancel = true;
-                                }
-                            });
+                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
+                            let color = if resp.hovered() { Color32::from_rgb(220, 60, 50) } else { if dark { Color32::from_gray(140) } else { Color32::from_gray(120) } };
+                            
+                            let c = rect.center();
+                            let s = 4.5;
+                            ui.painter().line_segment([c - egui::vec2(s, s), c + egui::vec2(s, s)], egui::Stroke::new(1.5, color));
+                            ui.painter().line_segment([c - egui::vec2(s, -s), c + egui::vec2(s, -s)], egui::Stroke::new(1.5, color));
+                            
+                            if resp.clicked() {
+                                cancel = true;
+                            }
+                        });
                         });
                         ui.add_space(16.0);
 
@@ -589,13 +710,15 @@ impl HubApp {
 
                         ui.label(RichText::new("Working directory (optional)").size(12.0));
                         ui.horizontal(|ui: &mut egui::Ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui: &mut egui::Ui| {
-                                ui.add_sized([220.0, 24.0], egui::TextEdit::singleline(&mut self.new_cwd));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
                                 if ui.button("Browse...").clicked() {
                                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                                         self.new_cwd = path.display().to_string();
                                     }
                                 }
+                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui: &mut egui::Ui| {
+                                    ui.add_sized(ui.available_size(), egui::TextEdit::singleline(&mut self.new_cwd));
+                                });
                             });
                         });
                         ui.add_space(16.0);
@@ -620,6 +743,97 @@ impl HubApp {
         }
         if confirm || cancel {
             self.adding_cli = false;
+        }
+    }
+
+    /// 编辑会话的模态小窗。
+    fn edit_cli_dialog(&mut self, ui: &mut egui::Ui) {
+        let mut confirm = false;
+        let mut cancel = false;
+
+        let screen_rect = ui.ctx().input(|i| i.raw.screen_rect).unwrap_or_else(|| ui.max_rect());
+        ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(150));
+
+        egui::Area::new(egui::Id::new("edit_session_modal"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui: &mut egui::Ui| {
+                let dark = ui.visuals().dark_mode;
+                let modal_bg = if dark { Color32::from_rgb(35, 35, 35) } else { Color32::from_rgb(250, 250, 250) };
+                let stroke = if dark { egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60)) } else { egui::Stroke::new(1.0, Color32::from_rgb(220, 220, 220)) };
+
+                let frame = egui::Frame::NONE
+                    .fill(modal_bg)
+                    .stroke(stroke)
+                    .corner_radius(16)
+                    .inner_margin(32.0)
+                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(100) });
+                
+                frame.show(ui, |ui: &mut egui::Ui| {
+                    ui.set_width(340.0);
+                        
+                    // Header with close button
+                    ui.horizontal(|ui: &mut egui::Ui| {
+                        ui.label(RichText::new("Edit CLI Session").size(18.0).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
+                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
+                            let color = if resp.hovered() { Color32::from_rgb(220, 60, 50) } else { if dark { Color32::from_gray(140) } else { Color32::from_gray(120) } };
+                            
+                            let c = rect.center();
+                            let s = 4.5;
+                            ui.painter().line_segment([c - egui::vec2(s, s), c + egui::vec2(s, s)], egui::Stroke::new(1.5, color));
+                            ui.painter().line_segment([c - egui::vec2(s, -s), c + egui::vec2(s, -s)], egui::Stroke::new(1.5, color));
+                            
+                            if resp.clicked() {
+                                cancel = true;
+                            }
+                        });
+                    });
+                    ui.add_space(16.0);
+
+                    ui.label(RichText::new("Name").size(12.0));
+                    ui.text_edit_singleline(&mut self.edit_name);
+                    ui.add_space(8.0);
+
+                    ui.label(RichText::new("Command").size(12.0));
+                    ui.text_edit_singleline(&mut self.edit_command);
+                    ui.add_space(8.0);
+
+                    ui.label(RichText::new("Working directory (optional)").size(12.0));
+                    ui.horizontal(|ui: &mut egui::Ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
+                            if ui.button("Browse...").clicked() {
+                                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                    self.edit_cwd = path.display().to_string();
+                                }
+                            }
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui: &mut egui::Ui| {
+                                ui.add_sized(ui.available_size(), egui::TextEdit::singleline(&mut self.edit_cwd));
+                            });
+                        });
+                    });
+                    ui.add_space(16.0);
+
+                    let name_ok = !self.edit_name.trim().is_empty();
+                    let cmd_ok = !self.edit_command.trim().is_empty();
+                    
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
+                        let save_btn = egui::Button::new(RichText::new("Save").color(Color32::WHITE)).fill(Color32::from_rgb(59, 130, 246));
+                        if ui.add_enabled(name_ok && cmd_ok, save_btn).clicked() {
+                            confirm = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            });
+
+        if confirm {
+            self.edit_cli();
+        }
+        if confirm || cancel {
+            self.editing_cli = None;
         }
     }
 }

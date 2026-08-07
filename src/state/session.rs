@@ -35,6 +35,14 @@ pub struct TerminalInstance {
     pub pty: Option<PtyHandle>,
     /// 进程是否存活
     pub alive: Arc<AtomicBool>,
+    /// IME 是否正处于预编辑（拼音输入中）状态
+    pub ime_composing: bool,
+    /// IME 预编辑文字（拼音字母），用于在光标位置内联渲染
+    pub ime_preedit: String,
+    /// 刚刚通过 IME Commit 提交的文字，用于吞掉随后由 OS 发送的重复 Text 事件
+    pub ime_just_committed_text: Option<String>,
+    /// 滚动累积量
+    pub scroll_accum: f32,
 }
 
 impl TerminalInstance {
@@ -44,6 +52,10 @@ impl TerminalInstance {
             rx: None,
             pty: None,
             alive: Arc::new(AtomicBool::new(false)),
+            ime_composing: false,
+            ime_preedit: String::new(),
+            ime_just_committed_text: None,
+            scroll_accum: 0.0,
         }
     }
 
