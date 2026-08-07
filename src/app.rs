@@ -546,11 +546,7 @@ impl HubApp {
     /// 依据配置构建终端主题。
     fn build_theme(&self) -> terminal::TermTheme {
         let settings = &self.config.theme;
-        let mut theme = if settings.dark {
-            terminal::TermTheme::dark()
-        } else {
-            terminal::TermTheme::light()
-        };
+        let mut theme = terminal::TermTheme::from_scheme(&settings.color_scheme);
         theme.apply(settings);
         theme
     }
@@ -600,7 +596,7 @@ impl HubApp {
                     });
                     ui.add_space(16.0);
 
-                    ui.label(RichText::new("Terminal theme").size(12.0));
+                    ui.label(RichText::new("App Theme").size(12.0));
                     ui.horizontal(|ui: &mut egui::Ui| {
                         if ui.radio(!self.settings_draft.dark, "Light").clicked() {
                             self.settings_draft.dark = false;
@@ -612,28 +608,59 @@ impl HubApp {
                         }
                     });
                     ui.add_space(8.0);
+                    
+                    ui.label(RichText::new("Terminal Color Scheme").size(12.0));
+                    egui::ComboBox::from_id_salt("color_scheme_combo")
+                        .selected_text(&self.settings_draft.color_scheme)
+                        .show_ui(ui, |ui: &mut egui::Ui| {
+                            ui.visuals_mut().selection.bg_fill = if dark {
+                                Color32::from_white_alpha(30)
+                            } else {
+                                Color32::from_black_alpha(20)
+                            };
+                            for scheme in &["Campbell", "One Half Light", "One Half Dark", "Solarized Dark", "Tango Dark", "Readable Solar Light"] {
+                                if ui.selectable_value(&mut self.settings_draft.color_scheme, scheme.to_string(), *scheme).changed() {
+                                    changed = true;
+                                }
+                            }
+                        });
+                    ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(8.0);
 
-                    let (preset_bg, preset_fg) = if self.settings_draft.dark {
-                        ([30, 30, 30], [212, 212, 212])
-                    } else {
-                        ([255, 255, 255], [31, 35, 40])
-                    };
+                    let default_theme = terminal::TermTheme::from_scheme(&self.settings_draft.color_scheme);
+                    let preset_bg = [default_theme.background.r(), default_theme.background.g(), default_theme.background.b()];
+                    let preset_fg = [default_theme.foreground.r(), default_theme.foreground.g(), default_theme.foreground.b()];
                     let mut bg = self.settings_draft.background.unwrap_or(preset_bg);
                     let mut fg = self.settings_draft.foreground.unwrap_or(preset_fg);
 
+                    let border_color = if dark { Color32::from_gray(80) } else { Color32::from_gray(200) };
+                    
                     ui.label("Background");
-                    if ui.color_edit_button_srgb(&mut bg).changed() {
-                        self.settings_draft.background = Some(bg);
-                        changed = true;
-                    }
+                    egui::Frame::NONE
+                        .stroke(egui::Stroke::new(1.0, border_color))
+                        .inner_margin(2.0)
+                        .corner_radius(4)
+                        .show(ui, |ui: &mut egui::Ui| {
+                            if ui.color_edit_button_srgb(&mut bg).changed() {
+                                self.settings_draft.background = Some(bg);
+                                changed = true;
+                            }
+                        });
+                        
                     ui.add_space(4.0);
+                    
                     ui.label("Foreground");
-                    if ui.color_edit_button_srgb(&mut fg).changed() {
-                        self.settings_draft.foreground = Some(fg);
-                        changed = true;
-                    }
+                    egui::Frame::NONE
+                        .stroke(egui::Stroke::new(1.0, border_color))
+                        .inner_margin(2.0)
+                        .corner_radius(4)
+                        .show(ui, |ui: &mut egui::Ui| {
+                            if ui.color_edit_button_srgb(&mut fg).changed() {
+                                self.settings_draft.foreground = Some(fg);
+                                changed = true;
+                            }
+                        });
                     ui.add_space(16.0);
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {

@@ -38,63 +38,166 @@ pub struct TermTheme {
 }
 
 impl TermTheme {
-    pub fn light() -> Self {
-        Self {
-            font_size: 15.0,
-            font_family: egui::FontFamily::Monospace,
-            bold_family: egui::FontFamily::Monospace,
-            background: Color32::from_rgb(255, 255, 255),
-            foreground: Color32::from_rgb(71, 85, 105), // Slate 600
-            cursor: Color32::from_rgb(99, 102, 241), // Indigo 500
-            ansi: [
-                Color32::from_rgb(30, 41, 59),    // black
-                Color32::from_rgb(239, 68, 68),   // red
-                Color32::from_rgb(34, 197, 94),   // green
-                Color32::from_rgb(234, 179, 8),   // yellow
-                Color32::from_rgb(59, 130, 246),  // blue
-                Color32::from_rgb(168, 85, 247),  // magenta
-                Color32::from_rgb(6, 182, 212),   // cyan
-                Color32::from_rgb(148, 163, 184), // white
-                Color32::from_rgb(100, 116, 139), // bright black
-                Color32::from_rgb(248, 113, 113), // bright red
-                Color32::from_rgb(74, 222, 128),  // bright green
-                Color32::from_rgb(253, 224, 71),  // bright yellow
-                Color32::from_rgb(96, 165, 250),  // bright blue
-                Color32::from_rgb(192, 132, 252), // bright magenta
-                Color32::from_rgb(34, 211, 238),  // bright cyan
-                Color32::from_rgb(203, 213, 225), // bright white
-            ],
-        }
-    }
-
-    /// 暗色主题：VS Code 风格中性深灰，不偏色，最能承载 ANSI 彩色输出。
-    pub fn dark() -> Self {
-        Self {
-            font_size: 15.0,
-            font_family: egui::FontFamily::Monospace,
-            bold_family: egui::FontFamily::Monospace,
-            background: Color32::from_rgb(30, 30, 30),    // #1E1E1E
-            foreground: Color32::from_rgb(212, 212, 212), // #D4D4D4
-            cursor: Color32::from_rgb(174, 175, 173),
-            ansi: [
-                Color32::from_rgb(0, 0, 0),       // black
-                Color32::from_rgb(205, 49, 49),   // red
-                Color32::from_rgb(13, 188, 121),  // green
-                Color32::from_rgb(229, 229, 16),  // yellow
-                Color32::from_rgb(36, 114, 200),  // blue
-                Color32::from_rgb(188, 63, 188),  // magenta
-                Color32::from_rgb(17, 168, 205),  // cyan
-                Color32::from_rgb(229, 229, 229), // white
-                Color32::from_rgb(102, 102, 102), // bright black
-                Color32::from_rgb(241, 76, 76),   // bright red
-                Color32::from_rgb(35, 209, 139),  // bright green
-                Color32::from_rgb(245, 245, 67),  // bright yellow
-                Color32::from_rgb(59, 142, 234),  // bright blue
-                Color32::from_rgb(214, 112, 214), // bright magenta
-                Color32::from_rgb(41, 184, 219),  // bright cyan
-                Color32::from_rgb(255, 255, 255), // bright white
-            ],
-        }
+    pub fn from_scheme(name: &str) -> Self {
+        let mut theme = match name {
+            "One Half Light" => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(250, 250, 250),
+                foreground: Color32::from_rgb(56, 58, 66),
+                cursor: Color32::from_rgb(191, 193, 200),
+                ansi: [
+                    Color32::from_rgb(56, 58, 66),
+                    Color32::from_rgb(228, 86, 73),
+                    Color32::from_rgb(80, 161, 79),
+                    Color32::from_rgb(193, 132, 1),
+                    Color32::from_rgb(1, 132, 188),
+                    Color32::from_rgb(166, 38, 164),
+                    Color32::from_rgb(9, 151, 179),
+                    Color32::from_rgb(250, 250, 250),
+                    Color32::from_rgb(79, 82, 93),
+                    Color32::from_rgb(228, 86, 73),
+                    Color32::from_rgb(80, 161, 79),
+                    Color32::from_rgb(193, 132, 1),
+                    Color32::from_rgb(1, 132, 188),
+                    Color32::from_rgb(166, 38, 164),
+                    Color32::from_rgb(9, 151, 179),
+                    Color32::from_rgb(250, 250, 250),
+                ],
+            },
+            "One Half Dark" => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(40, 44, 52),
+                foreground: Color32::from_rgb(220, 223, 228),
+                cursor: Color32::from_rgb(163, 179, 204),
+                ansi: [
+                    Color32::from_rgb(40, 44, 52),
+                    Color32::from_rgb(224, 108, 117),
+                    Color32::from_rgb(152, 195, 121),
+                    Color32::from_rgb(229, 192, 123),
+                    Color32::from_rgb(97, 175, 239),
+                    Color32::from_rgb(198, 120, 221),
+                    Color32::from_rgb(86, 182, 194),
+                    Color32::from_rgb(220, 223, 228),
+                    Color32::from_rgb(90, 99, 116),
+                    Color32::from_rgb(224, 108, 117),
+                    Color32::from_rgb(152, 195, 121),
+                    Color32::from_rgb(229, 192, 123),
+                    Color32::from_rgb(97, 175, 239),
+                    Color32::from_rgb(198, 120, 221),
+                    Color32::from_rgb(86, 182, 194),
+                    Color32::from_rgb(220, 223, 228),
+                ],
+            },
+            "Solarized Dark" => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(0, 43, 54),
+                foreground: Color32::from_rgb(131, 148, 150),
+                cursor: Color32::from_rgb(147, 161, 161),
+                ansi: [
+                    Color32::from_rgb(7, 54, 66),
+                    Color32::from_rgb(220, 50, 47),
+                    Color32::from_rgb(133, 153, 0),
+                    Color32::from_rgb(181, 137, 0),
+                    Color32::from_rgb(38, 139, 210),
+                    Color32::from_rgb(211, 54, 130),
+                    Color32::from_rgb(42, 161, 152),
+                    Color32::from_rgb(238, 232, 213),
+                    Color32::from_rgb(0, 43, 54),
+                    Color32::from_rgb(203, 75, 22),
+                    Color32::from_rgb(88, 110, 117),
+                    Color32::from_rgb(101, 123, 131),
+                    Color32::from_rgb(131, 148, 150),
+                    Color32::from_rgb(108, 113, 196),
+                    Color32::from_rgb(147, 161, 161),
+                    Color32::from_rgb(253, 246, 227),
+                ],
+            },
+            "Tango Dark" => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(0, 0, 0),
+                foreground: Color32::from_rgb(211, 215, 207),
+                cursor: Color32::from_rgb(255, 255, 255),
+                ansi: [
+                    Color32::from_rgb(0, 0, 0),
+                    Color32::from_rgb(204, 0, 0),
+                    Color32::from_rgb(78, 154, 6),
+                    Color32::from_rgb(196, 160, 0),
+                    Color32::from_rgb(52, 101, 164),
+                    Color32::from_rgb(117, 80, 123),
+                    Color32::from_rgb(6, 152, 154),
+                    Color32::from_rgb(211, 215, 207),
+                    Color32::from_rgb(85, 87, 83),
+                    Color32::from_rgb(239, 41, 41),
+                    Color32::from_rgb(138, 226, 52),
+                    Color32::from_rgb(252, 233, 79),
+                    Color32::from_rgb(114, 159, 207),
+                    Color32::from_rgb(173, 127, 168),
+                    Color32::from_rgb(52, 226, 226),
+                    Color32::from_rgb(238, 238, 236),
+                ],
+            },
+            "Readable Solar Light" => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(244, 245, 244), // F4F5F4 background
+                foreground: Color32::from_rgb(101, 123, 131), // 657B83 foreground
+                cursor: Color32::from_rgb(88, 110, 117), // 586E75 cursor
+                ansi: [
+                    Color32::from_rgb(7, 54, 66),
+                    Color32::from_rgb(220, 50, 47),
+                    Color32::from_rgb(133, 153, 0),
+                    Color32::from_rgb(181, 137, 0),
+                    Color32::from_rgb(38, 139, 210),
+                    Color32::from_rgb(211, 54, 130),
+                    Color32::from_rgb(42, 161, 152),
+                    Color32::from_rgb(238, 232, 213),
+                    Color32::from_rgb(0, 43, 54),
+                    Color32::from_rgb(203, 75, 22),
+                    Color32::from_rgb(88, 110, 117),
+                    Color32::from_rgb(101, 123, 131),
+                    Color32::from_rgb(131, 148, 150),
+                    Color32::from_rgb(108, 113, 196),
+                    Color32::from_rgb(147, 161, 161),
+                    Color32::from_rgb(253, 246, 227),
+                ],
+            },
+            "Campbell" | _ => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(12, 12, 12),
+                foreground: Color32::from_rgb(204, 204, 204),
+                cursor: Color32::from_rgb(255, 255, 255),
+                ansi: [
+                    Color32::from_rgb(12, 12, 12),
+                    Color32::from_rgb(197, 15, 31),
+                    Color32::from_rgb(19, 161, 14),
+                    Color32::from_rgb(193, 156, 0),
+                    Color32::from_rgb(0, 55, 218),
+                    Color32::from_rgb(136, 23, 152),
+                    Color32::from_rgb(58, 150, 221),
+                    Color32::from_rgb(204, 204, 204),
+                    Color32::from_rgb(118, 118, 118),
+                    Color32::from_rgb(231, 72, 86),
+                    Color32::from_rgb(22, 198, 12),
+                    Color32::from_rgb(249, 241, 165),
+                    Color32::from_rgb(59, 120, 255),
+                    Color32::from_rgb(180, 0, 158),
+                    Color32::from_rgb(97, 214, 214),
+                    Color32::from_rgb(242, 242, 242),
+                ],
+            },
+        };
+        theme
     }
 
     /// 应用自定义颜色覆盖。

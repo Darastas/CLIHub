@@ -29,9 +29,12 @@ pub struct CliEntry {
 /// 终端主题设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeSettings {
-    /// 暗色主题预设
+    /// 暗色主题预设 (UI 主题)
     #[serde(default)]
     pub dark: bool,
+    /// 终端配色方案名称 (例如 "Campbell", "One Half Dark")
+    #[serde(default = "default_color_scheme")]
+    pub color_scheme: String,
     /// 自定义背景色（覆盖预设）
     #[serde(default)]
     pub background: Option<[u8; 3]>,
@@ -40,10 +43,15 @@ pub struct ThemeSettings {
     pub foreground: Option<[u8; 3]>,
 }
 
+fn default_color_scheme() -> String {
+    "Campbell".to_string()
+}
+
 impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
             dark: false,
+            color_scheme: default_color_scheme(),
             background: None,
             foreground: None,
         }
