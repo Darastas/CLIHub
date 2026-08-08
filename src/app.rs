@@ -486,19 +486,6 @@ impl HubApp {
             }
         }
 
-        // 新增会话对话框
-        if self.adding_cli {
-            self.add_cli_dialog(ui);
-        }
-        // 编辑会话对话框
-        if self.editing_cli.is_some() {
-            self.edit_cli_dialog(ui);
-        }
-        // 设置窗口
-        if self.show_settings {
-            self.settings_window(ui);
-        }
-
         let mut action = None;
         // 弹窗打开时禁止键盘转发（避免输入串进终端）
         let input_enabled = !self.adding_cli && self.editing_cli.is_none() && !self.show_settings;
@@ -517,6 +504,20 @@ impl HubApp {
                 }
             }
         });
+
+        // 对话框必须在所有 Panel 渲染完毕后绘制，这样背景遮罩才能覆盖全屏（包括终端区域）
+        // 新增会话对话框
+        if self.adding_cli {
+            self.add_cli_dialog(ui);
+        }
+        // 编辑会话对话框
+        if self.editing_cli.is_some() {
+            self.edit_cli_dialog(ui);
+        }
+        // 设置窗口
+        if self.show_settings {
+            self.settings_window(ui);
+        }
 
         match action {
             Some(terminal::TerminalAction::NewTab) => self.spawn_tab(self.selected),
@@ -586,6 +587,12 @@ impl HubApp {
                     .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
+                    let visuals = &mut ui.style_mut().visuals;
+                    visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
+                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
+                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
+                    visuals.selection.stroke = egui::Stroke::new(1.5, Color32::from_rgb(0, 111, 238));
+
                     ui.set_width(320.0);
                         
                     // Header with close button
@@ -740,9 +747,15 @@ impl HubApp {
                     .stroke(stroke)
                     .corner_radius(16)
                     .inner_margin(32.0)
-                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(100) });
+                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
+                    let visuals = &mut ui.style_mut().visuals;
+                    visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
+                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
+                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
+                    visuals.selection.stroke = egui::Stroke::new(1.5, Color32::from_rgb(0, 111, 238));
+
                     ui.set_width(340.0);
                         
                     // Header with close button
@@ -831,9 +844,15 @@ impl HubApp {
                     .stroke(stroke)
                     .corner_radius(16)
                     .inner_margin(32.0)
-                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(100) });
+                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
+                    let visuals = &mut ui.style_mut().visuals;
+                    visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
+                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
+                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
+                    visuals.selection.stroke = egui::Stroke::new(1.5, Color32::from_rgb(0, 111, 238));
+
                     ui.set_width(340.0);
                         
                     // Header with close button

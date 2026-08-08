@@ -59,6 +59,31 @@ impl PtyHandle {
             cmd.env("COLORFGBG", "0;15"); // 黑字白底
         }
         
+        // 当设置为 xterm-256color 时，很多跨平台 AI 工具会进入 POSIX 模式，从而不再调用 Windows API 读取语言。
+        // 因此如果环境变量中没有 LANG，我们需要主动探测 Windows 的区域设置并注入 LANG。
+        if std::env::var("LANG").is_err() {
+            #[cfg(windows)]
+            {
+                unsafe extern "system" {
+                    fn GetUserDefaultLocaleName(lpLocaleName: *mut u16, cchLocaleName: i32) -> i32;
+                }
+                let mut buf = [0u16; 85];
+                let ret = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), 85) };
+                if ret > 0 {
+                    let name = String::from_utf16_lossy(&buf[..(ret as usize - 1)]);
+                    let mut lang = name.replace("-", "_");
+                    lang.push_str(".UTF-8");
+                    cmd.env("LANG", lang);
+                } else {
+                    cmd.env("LANG", "en_US.UTF-8");
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                cmd.env("LANG", "en_US.UTF-8");
+            }
+        }
+        
         let child = pair
             .slave
             .spawn_command(cmd)
