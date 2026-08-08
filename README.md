@@ -59,8 +59,8 @@ CLIHub 就是为了解决这一痛点而生：
 
 ```bash
 # 1. 克隆代码库
-git clone https://github.com/your-username/clihub.git
-cd clihub
+git clone https://github.com/Darastas/CLIHub.git
+cd CLIHub
 
 # 2. 运行（开发模式）
 cargo run

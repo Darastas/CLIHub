@@ -1,1 +1,22 @@
+# Build artifacts
 /target
+
+# Logs & debug
+*.log
+debug.err
+
+# IDE
+.vscode/
+.idea/
+
+# Dev scratch files
+scratch/
+scratch.rs
+implementation_plan.md
+prompt.md
+
+# OS generated
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
