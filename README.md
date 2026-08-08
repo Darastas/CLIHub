@@ -19,7 +19,7 @@
 
 ## English
 
-CLIHub is a modern desktop terminal aggregator purpose-built for the AI era. It unifies your scattered command-line tools — especially AI-powered ones like **OpenAI Codex CLI**, **Claude Code**, **Oh My Posh**, and more — into a single, beautifully crafted application.
+CLIHub is a modern desktop terminal aggregator purpose-built for the AI era. It unifies your scattered command-line tools — especially AI-powered ones like **OpenAI Codex CLI**, **Claude Code**, **Oh My PI**, and more — into a single, beautifully crafted application.
 
 Powered by a robust PTY engine and Alacritty-grade character grid rendering, CLIHub delivers a silky-smooth, full-featured true-color terminal experience wrapped in a premium, native-feeling UI.
 
@@ -87,7 +87,7 @@ cargo build --release  # Release build
 
 ## 中文
 
-CLIHub 是一款专为 AI 时代打造的现代化多屏终端聚合神器，拥有极简、优雅的图形化操作界面。它能够将你散落在各处的命令行工具（特别是像 **OpenAI Codex CLI**、**Oh My Posh**、**Claude Code** 等 AI 命令行工具）统一聚合到一个美观的桌面应用中。
+CLIHub 是一款专为 AI 时代打造的现代化多屏终端聚合神器，拥有极简、优雅的图形化操作界面。它能够将你散落在各处的命令行工具（特别是像 **OpenAI Codex CLI**、**Oh My PI**、**Claude Code** 等 AI 命令行工具）统一聚合到一个美观的桌面应用中。
 
 它不仅拥有媲美原生系统的现代 UI 设计和动效，还通过底层的强力 PTY 引擎和 Alacritty 级别的硬件加速字符网格渲染，带给你极其丝滑、全功能的真彩色终端体验。
 
