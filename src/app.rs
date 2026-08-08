@@ -15,6 +15,7 @@ use crate::ui::{sidebar, terminal, titlebar};
 pub struct HubApp {
     config: AppConfig,
     sessions: Vec<Session>,
+    next_id: usize,
     selected: usize,
     // 新增会话对话框状态
     adding_cli: bool,
@@ -252,9 +253,12 @@ impl HubApp {
             })
             .collect();
 
+        let next_id = sessions.iter().map(|s| s.id).max().unwrap_or(0) + 1;
+
         let mut app = Self {
             config,
             sessions,
+            next_id,
             selected: 0,
             adding_cli: false,
             new_name: String::new(),
@@ -308,10 +312,12 @@ impl HubApp {
         } else {
             PathBuf::from(self.new_cwd.trim())
         };
-        let idx = self.sessions.len();
+        let id = self.next_id;
+        self.next_id += 1;
+        let new_idx = self.sessions.len();
         self.sessions
-            .push(Session::new(idx, &name, &command, cwd));
-        self.selected = idx;
+            .push(Session::new(id, &name, &command, cwd));
+        self.selected = new_idx;
         self.new_name.clear();
         self.new_command.clear();
         self.new_cwd.clear();

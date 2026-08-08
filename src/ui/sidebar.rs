@@ -52,9 +52,20 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
 
     let dark = ui.visuals().dark_mode;
     
-    // Clear drag state if mouse is released
+    // Clear drag state and handle drop if mouse is released
     if !ui.ctx().input(|i| i.pointer.any_down()) {
-        ui.memory_mut(|mem| mem.data.remove::<usize>(Id::new("dragged_idx")));
+        let dragged = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("dragged_idx")));
+        let target = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("target_idx")));
+        
+        if let (Some(dragged_idx), Some(target_idx)) = (dragged, target) {
+            if dragged_idx != target_idx {
+                action.move_to = Some((dragged_idx, target_idx));
+            }
+        }
+        ui.memory_mut(|mem| {
+            mem.data.remove::<usize>(Id::new("dragged_idx"));
+            mem.data.remove::<usize>(Id::new("target_idx"));
+        });
     }
 
     // ---- SESSIONS 分区标题 + 新增按钮 ----
@@ -91,8 +102,10 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
         .show(ui, |ui| {
             for (idx, s) in sessions.iter().enumerate() {
                 let is_sel = idx == selected;
-                draw_card(ui, s, idx, is_sel, &mut action, theme);
-                ui.allocate_space(vec2(0.0, 2.0));
+                ui.push_id(s.id, |ui| {
+                    draw_card(ui, s, idx, is_sel, &mut action, theme);
+                });
+                ui.add_space(2.0);
             }
         });
 
@@ -166,18 +179,19 @@ fn draw_card(
             }
             
             let offset_slots = target_visual_idx as f32 - idx as f32;
-            visual_rect = visual_rect.translate(vec2(0.0, offset_slots * (row_height + 2.0)));
+            let spacing = ui.spacing().item_spacing.y;
+            visual_rect = visual_rect.translate(vec2(0.0, offset_slots * (row_height + 2.0 + spacing)));
         }
     }
 
-    let anim_y = ui.ctx().animate_value_with_time(Id::new(("anim_y", s.name.clone())), visual_rect.min.y, 0.15);
+    let anim_y = ui.ctx().animate_value_with_time(Id::new(("anim_y", s.id)), visual_rect.min.y, 0.15);
     visual_rect = Rect::from_min_size(Pos2::new(visual_rect.min.x, anim_y), visual_rect.size());
 
     let bg_rect = visual_rect.shrink2(vec2(margin_x, margin_y));
 
     // Smooth animations for hover and selection
-    let sel_factor = ui.ctx().animate_bool(Id::new(("sel", idx)), is_sel);
-    let hover_factor = ui.ctx().animate_bool(Id::new(("hover", idx)), hovered && !is_sel);
+    let sel_factor = ui.ctx().animate_bool(Id::new(("sel", s.id)), is_sel);
+    let hover_factor = ui.ctx().animate_bool(Id::new(("hover", s.id)), hovered && !is_sel);
 
     fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
         Color32::from_rgba_premultiplied(
@@ -288,8 +302,6 @@ fn draw_card(
     render_card(ui.painter(), bg_rect, opacity, false, delete_hovered);
 
     if dragged {
-        resp.dnd_set_drag_payload(idx);
-        
         // Draw the payload following the pointer
         if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
             // drag_rect uses the original non-animated bg_rect size, centered at pointer
@@ -317,9 +329,5 @@ fn draw_card(
 
     if resp.clicked() && action.remove.is_none() {
         action.select = Some(idx);
-    }
-    // 释放时接收拖拽排序
-    if let Some(payload) = resp.dnd_release_payload::<usize>() {
-        action.move_to = Some((*payload, idx));
     }
 }
