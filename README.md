@@ -1,58 +1,76 @@
-# AI CLI Hub
+# CLIHub
 
-将多个 AI CLI（Claude CLI / OpenAI Codex CLI / Cursor 等）聚合在一个桌面应用里。
-左侧边栏管理并切换多实例（后台保持运行），右侧是真正可交互的终端（基于
-alacritty 字符网格渲染）。
+CLIHub 是一款专为 AI 时代打造的现代化多屏终端聚合神器，拥有极简、优雅的图形化操作界面。它能够将你散落在各处的命令行工具（特别是像 OpenAI Codex CLI、Oh My Posh、Claude Code 等 AI 命令行工具）统一聚合到一个美观的桌面应用中。
 
-## 功能
+它不仅拥有媲美原生系统的现代 UI 设计和动效，还通过底层的强力 PTY 引擎和 Alacritty 级别的硬件加速字符网格渲染，带给你极其丝滑、全功能的真彩色终端体验。
 
-- **多实例管理**：左侧边栏列出所有 CLI 及工作目录，点击切换；悬浮可删除，`＋` 新增；会话在后台保持运行。
-- **终端模拟器**：`alacritty_terminal` 解析 PTY 字节流，egui 逐格渲染（ANSI 颜色 / 粗体 / 下划线 / 宽字符 / 闪烁光标）。
-- **配置持久化**：会话列表写入平台配置目录 `ai-cli-hub/config.json`。
-- **现代 UI**：无边框窗口（macOS 风格圆钮 + 拖拽）、白/浅灰极简视觉、等宽 + CJK 字体。
+## 🚀 为什么使用 CLIHub？
 
-## 技术栈
+在 AI 爆发的今天，开发者往往需要同时开启多个 AI 助手或命令行工具。传统的终端虽然强大，但在多实例切换、界面美观度和操作直觉上往往有所欠缺。
 
-- **GUI**：`eframe` / `egui` 0.35
-- **终端状态机**：`alacritty_terminal` 0.26 + `vte` 解析器
-- **PTY**：`portable-pty` 0.9
-- **并发**：`crossbeam-channel`
+CLIHub 就是为了解决这一痛点而生：
+- **集中管理**：把常用命令（无论是 AI 代理还是常规环境）作为 Session（会话）保存，一键呼出，不再需要满屏幕找终端窗口。
+- **高级质感**：基于 Egui 打造的 macOS 级优雅无边框窗口设计，自带精雕细琢的毛玻璃质感、悬浮动效和多主题自适应系统。
+- **硬核底座**：完美兼容任何需要真彩色和特殊环境注入的现代 CLI 程序，甚至是依赖交互的提示工具。
 
-## 构建与运行
+## ✨ 核心特性
+
+- 🖥️ **强大的终端内核**：基于 `alacritty_terminal` 解析引擎，支持完整的 ANSI 转义、真彩色（256-color / Truecolor）、粗体/下划线、宽字符（CJK）以及光标状态。
+- 📦 **多会话与多标签页（Multi-Tab）管理**：
+  - 侧边栏集中管理所有会话，后台持久运行，切换如丝般顺滑。
+  - 单个会话支持平行拓展多个 Tab（标签页），方便你实现 `编辑-运行-监控` 的一体化流转。
+  - 支持会话和标签页的拖拽排序与编辑。
+- 🎨 **顶级视觉体验**：
+  - 沉浸式无边框窗口设计，流畅的阻尼拖拽与缩放。
+  - 深度定制的独立色彩系统（Campbell、One Half、Solarized、Tango 等多种经典终端配色方案任你挑选）。
+  - **OS 级智能主题跟随**：完美处理 Light / Dark 深浅色模式。不仅能自适应界面颜色，底层还会智能向 PTY 注入 POSIX 规范的 `TERM`、`LANG` 探测变量，并响应 `OSC 11` 颜色查询，让 AI 工具和 Oh My Posh 自适应你的当前主题（告别深色终端配亮瞎眼白底的痛！）。
+- 💾 **即开即用的持久化**：所有添加的 Session、配色偏好、明暗模式都会实时写入配置文件，下一次打开一切依旧。
+
+## 🕹️ 如何使用
+
+### 添加与编辑会话 (Sessions)
+1. 在左侧边栏点击 **`+`** 按钮，打开“添加会话”面板。
+2. 输入 **Name（别名）**、**Command（需运行的命令，如 `claude-code` 或 `omp`）**，以及可选的 **Working directory（工作目录）**。
+3. 点击添加后，会话卡片将常驻侧边栏。
+4. **运行**：点击即可启动或切换到该环境；**编辑**：将鼠标悬浮在卡片上点击铅笔图标；**排序**：直接按住卡片上下拖拽。
+
+### 标签页 (Tabs) 操作
+1. 选中任意会话后，点击终端区域顶部标签栏旁的 **`+`**。
+2. 将在此会话的上下文中直接复刻（克隆）一个全新的标签页进程，方便进行同环境下的多任务处理（例如一边用 Vim 写代码，一边让 AI 跑测试）。
+3. 鼠标悬停标签卡即可关闭（`x`）。
+
+### 主题与外观自定义
+1. 点击左上角的 `CLIHub` Logo 旁边的 **Settings（设置）**。
+2. 在沉浸式浮层中，你可以：
+   - 切换 **Light / Dark** 浅色或深色全局应用主题。
+   - 针对终端区域，选择不同的 **Terminal Color Scheme（终端颜色方案）**。
+   - 点击色块呼出拾色器，深度自定义 **Background（终端背景）**、**Foreground（终端文本）** 和 **Sidebar Card Color（卡片高亮色）**。
+
+## 🛠️ 技术栈与架构
+
+- **GUI 框架**：`eframe` / `egui` (极速 Rust 立即渲染 GUI，支持毛玻璃与阴影动效)。
+- **终端状态机与渲染**：`alacritty_terminal` 核心 + `vte` 解析器进行逐格（Grid）状态机维护。
+- **后端守护与 PTY**：`portable-pty` 实现原生系统（Windows / Unix）伪终端通信；`crossbeam-channel` 实现高性能无锁数据转发。
+- **操作系统探测**：针对 Windows 环境专门调用底层 API（`GetUserDefaultLocaleName`）实现终端语言（LANG）热注入，确保多语言工具的行为一致性。
+
+## ⚙️ 构建与运行
+
+你需要安装 Rust 工具链 (`rustup` / `cargo`)。
 
 ```bash
-cargo run            # 开发模式
+# 1. 克隆代码库
+git clone https://github.com/your-username/clihub.git
+cd clihub
+
+# 2. 运行（开发模式）
+cargo run
+
+# 3. 编译发布版本（Release）
 cargo build --release
-cargo test           # 后端单元测试（终端网格 / ANSI / resize）
 ```
 
-> Windows 下首次运行会自动拉起 `Terminal`（cmd）会话以验证链路；
-> 侧边栏里的 Claude CLI / Codex CLI 需本机已安装对应命令。
+> **注意**：Windows 环境下，由于软件会调用部分系统特定的 PTY 与 API 进行终端接管，初次启动可能会由于杀毒软件拦截导致速度稍慢，属正常现象。软件无任何越权行为。
 
-## 工程结构（对应 prompt.md 5.2）
+## 🤝 贡献与反馈
 
-```text
-src/
-├── main.rs            # 入口：无边框窗口 + eframe
-├── app.rs             # App 状态：会话管理、后台拉流、标题栏与面板编排
-├── ui/                # 视图层（仅 egui 绘制）
-│   ├── sidebar.rs     # 左侧列表：切换 / 增删会话
-│   ├── terminal.rs    # 网格渲染 + 原始按键转发 + 缩放 + 滚动
-│   └── titlebar.rs    # 无边框标题栏（圆钮 / 拖拽 / 双击最大化）
-├── backend/           # 核心业务层
-│   ├── pty.rs         # portable-pty 子进程 + 后台 reader 线程
-│   ├── terminal.rs    # alacritty 终端 + VTE 解析封装
-│   └── io_loop.rs     # 每帧把 PTY 字节块喂进终端
-├── state/session.rs   # 会话状态模型
-└── config/mod.rs      # CLI 列表的 JSON 序列化
-```
-
-## 交互
-
-| 操作 | 说明 |
-|:---|:---|
-| 点击终端 | 聚焦，开始键入 |
-| 输入命令 + Enter | 发送到当前 CLI |
-| `Ctrl+C` | 中断（SIGINT） |
-| 滚轮 | 滚动历史缓冲 |
-| 标题栏绿钮 / 双击 | 最大化 / 还原 |
+非常欢迎各位提交 Issue 和 Pull Request！如果你在使用过程中遇到任何渲染兼容性或功能建议，也请随时通过 Issue 反馈，我们会像对待像素级艺术品一样去打磨它。
