@@ -93,6 +93,7 @@ pub struct Terminal {
     processor: Processor,
     pty_rx: Receiver<String>,
     size: Arc<Mutex<(usize, usize)>>,
+    pub bg_color: Arc<Mutex<Rgb>>,
     cols: u16,
     rows: u16,
     pub selection: Option<SelectionRange>,
@@ -108,20 +109,18 @@ impl Terminal {
             b: 255,
         }));
         let listener = HubListener {
-            pty_tx: pty_tx.clone(),
+            pty_tx,
             size: size.clone(),
-            bg_color,
+            bg_color: bg_color.clone(),
         };
-        let dims = TermDims {
-            cols: cols as usize,
-            rows: rows as usize,
-        };
-        let term = Term::new(Config::default(), &dims, listener);
+        let term = Term::new(Config::default(), &TermDims { cols: cols as usize, rows: rows as usize }, listener);
+        
         Self {
             term,
             processor: Processor::new(),
             pty_rx,
             size,
+            bg_color,
             cols,
             rows,
             selection: None,

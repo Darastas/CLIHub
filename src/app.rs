@@ -55,10 +55,21 @@ fn setup_fonts(ctx: &egui::Context) {
         "jbmono-bold".into(),
         arc(include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")),
     );
+    // 优雅艺术标题字体 (Playfair Display)
+    fonts.font_data.insert(
+        "title_font".into(),
+        arc(include_bytes!("../assets/fonts/PlayfairDisplay.ttf")),
+    );
+
     // 自定义加粗族（供终端粗体字形使用）
     fonts
         .families
         .insert(FontFamily::Name("jbmono-bold".into()), vec!["jbmono-bold".into()]);
+        
+    // 自定义标题族
+    fonts
+        .families
+        .insert(FontFamily::Name("title".into()), vec!["title_font".into()]);
     // 终端等宽族：JetBrains Mono 打头
     if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
         mono.insert(0, "jbmono".into());
@@ -186,7 +197,7 @@ fn app_visuals(dark: bool) -> egui::Visuals {
         v.panel_fill = Color32::from_rgb(24, 24, 27);    // Zinc-900
         v.window_fill = Color32::from_rgb(9, 9, 11);     // Zinc-950
         v.selection.bg_fill = Color32::from_rgb(0, 111, 238); // HeroUI Primary
-        v.selection.stroke = egui::Stroke::NONE;
+        v.selection.stroke = egui::Stroke::new(1.0, Color32::WHITE);
         
         // Faded hover effects for buttons
         v.widgets.inactive.bg_fill = Color32::TRANSPARENT; // Ghost buttons by default
@@ -201,7 +212,7 @@ fn app_visuals(dark: bool) -> egui::Visuals {
         v.panel_fill = Color32::from_rgb(250, 250, 250); // Zinc-50
         v.window_fill = Color32::from_rgb(255, 255, 255);
         v.selection.bg_fill = Color32::from_rgb(0, 111, 238); // HeroUI Primary
-        v.selection.stroke = egui::Stroke::NONE;
+        v.selection.stroke = egui::Stroke::new(1.0, Color32::WHITE);
         
         // Faded hover effects
         v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
@@ -354,7 +365,7 @@ impl HubApp {
         let command = s.command.clone();
         let cwd = s.cwd.clone();
         let mut inst = TerminalInstance::new();
-        match PtyHandle::spawn(&command, &[], &cwd, 24, 80) {
+        match PtyHandle::spawn(&command, &[], &cwd, 24, 80, self.config.theme.dark) {
             Ok((pty, rx)) => {
                 inst.alive = pty.alive.clone();
                 inst.terminal = Some(Terminal::new(24, 80));
@@ -440,7 +451,7 @@ impl HubApp {
             .resizable(false)
             .exact_size(232.0)
             .show(ui, |ui| {
-                side = sidebar::show(ui, &self.sessions, self.selected);
+                side = sidebar::show(ui, &self.sessions, self.selected, &self.config.theme);
             });
         if let Some(idx) = side.select {
             self.selected = idx;
@@ -572,7 +583,7 @@ impl HubApp {
                     .stroke(stroke)
                     .corner_radius(16)
                     .inner_margin(32.0)
-                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(100) });
+                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
                     ui.set_width(320.0);
@@ -598,14 +609,26 @@ impl HubApp {
 
                     ui.label(RichText::new("App Theme").size(12.0));
                     ui.horizontal(|ui: &mut egui::Ui| {
+                        // Restore bg_stroke for radio buttons
+                        let prev_stroke = ui.visuals().widgets.inactive.bg_stroke;
+                        ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(1.5, if dark { Color32::from_gray(100) } else { Color32::from_gray(160) });
+                        
                         if ui.radio(!self.settings_draft.dark, "Light").clicked() {
                             self.settings_draft.dark = false;
+                            self.settings_draft.color_scheme = "One Half Light".to_string();
+                            self.settings_draft.background = None;
+                            self.settings_draft.foreground = None;
                             changed = true;
                         }
                         if ui.radio(self.settings_draft.dark, "Dark").clicked() {
                             self.settings_draft.dark = true;
+                            self.settings_draft.color_scheme = "Campbell".to_string();
+                            self.settings_draft.background = None;
+                            self.settings_draft.foreground = None;
                             changed = true;
                         }
+                        
+                        ui.visuals_mut().widgets.inactive.bg_stroke = prev_stroke;
                     });
                     ui.add_space(8.0);
                     
@@ -620,6 +643,8 @@ impl HubApp {
                             };
                             for scheme in &["Campbell", "One Half Light", "One Half Dark", "Solarized Dark", "Tango Dark", "Readable Solar Light"] {
                                 if ui.selectable_value(&mut self.settings_draft.color_scheme, scheme.to_string(), *scheme).changed() {
+                                    self.settings_draft.background = None;
+                                    self.settings_draft.foreground = None;
                                     changed = true;
                                 }
                             }
@@ -636,31 +661,43 @@ impl HubApp {
 
                     let border_color = if dark { Color32::from_gray(80) } else { Color32::from_gray(200) };
                     
-                    ui.label("Background");
-                    egui::Frame::NONE
-                        .stroke(egui::Stroke::new(1.0, border_color))
-                        .inner_margin(2.0)
-                        .corner_radius(4)
-                        .show(ui, |ui: &mut egui::Ui| {
-                            if ui.color_edit_button_srgb(&mut bg).changed() {
-                                self.settings_draft.background = Some(bg);
-                                changed = true;
-                            }
-                        });
+                    let mut draw_color_picker = |ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]| -> bool {
+                        ui.label(label);
+                        let mut res = false;
+                        egui::Frame::NONE
+                            .stroke(egui::Stroke::new(1.0, border_color))
+                            .inner_margin(2.0)
+                            .corner_radius(4)
+                            .show(ui, |ui: &mut egui::Ui| {
+                                // Temporarily add a very subtle inner stroke to the color edit button 
+                                // so it doesn't blend into the gap if the color matches the background
+                                let prev_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                                ui.visuals_mut().widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(220) });
+                                res = ui.color_edit_button_srgb(color).changed();
+                                ui.visuals_mut().widgets.noninteractive.bg_stroke = prev_stroke;
+                            });
+                        res
+                    };
+                    
+                    if draw_color_picker(ui, "Background", &mut bg) {
+                        self.settings_draft.background = Some(bg);
+                        changed = true;
+                    }
                         
                     ui.add_space(4.0);
                     
-                    ui.label("Foreground");
-                    egui::Frame::NONE
-                        .stroke(egui::Stroke::new(1.0, border_color))
-                        .inner_margin(2.0)
-                        .corner_radius(4)
-                        .show(ui, |ui: &mut egui::Ui| {
-                            if ui.color_edit_button_srgb(&mut fg).changed() {
-                                self.settings_draft.foreground = Some(fg);
-                                changed = true;
-                            }
-                        });
+                    if draw_color_picker(ui, "Foreground", &mut fg) {
+                        self.settings_draft.foreground = Some(fg);
+                        changed = true;
+                    }
+                    ui.add_space(4.0);
+                    
+                    let mut sidebar_bg = self.settings_draft.sidebar_card_color.unwrap_or([0, 111, 238]);
+                    if draw_color_picker(ui, "Sidebar Card Color", &mut sidebar_bg) {
+                        self.settings_draft.sidebar_card_color = Some(sidebar_bg);
+                        changed = true;
+                    }
+                    
                     ui.add_space(16.0);
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {

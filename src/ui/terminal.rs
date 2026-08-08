@@ -235,7 +235,7 @@ pub fn show(
         .auto_shrink([false, true])
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add_space(8.0);
+                ui.add_space(12.0); // 必须与下方终端区域的左外边距完全一致 (12.0)
                 for ti in 0..session.tabs.len() {
                     let is_active = ti == session.active_tab;
                     if let Some(a) = draw_tab(ui, session, ti, is_active, theme) {
@@ -501,6 +501,16 @@ fn paint_grid(
     rows: u16,
     focused: bool,
 ) {
+    // Update the terminal's idea of the background color so OSC 11 queries respond correctly
+    {
+        let mut bg = terminal.bg_color.lock().unwrap();
+        *bg = Rgb {
+            r: theme.background.r(),
+            g: theme.background.g(),
+            b: theme.background.b(),
+        };
+    }
+
     let term = &terminal.term;
     let grid = term.grid();
     let colors = term.colors();

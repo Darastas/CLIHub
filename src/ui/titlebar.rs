@@ -38,28 +38,40 @@ pub fn show(ui: &mut Ui) -> bool {
         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!maxed));
     }
 
-    // 左上角应用名
+    // 优雅艺术标题 (Playfair Display Italic)
     let dark = ui.visuals().dark_mode;
     let title_color = if dark {
         Color32::from_rgb(205, 214, 244) // Text in Catppuccin
     } else {
         Color32::from_rgb(30, 41, 59) // Slate 800
     };
+    
+    // 使用优雅但不张扬的 Playfair Display 字体
+    let title_font = FontId::new(18.0, egui::FontFamily::Name("title".into()));
+    let title_text = "CLIHub";
+    let title_pos = Pos2::new(rect.min.x + 20.0, rect.center().y);
+    
+    // 主文本 (无发光，追求简约大气)
     ui.painter().text(
-        Pos2::new(rect.min.x + 16.0, rect.center().y),
+        title_pos,
         Align2::LEFT_CENTER,
-        "AI CLI Hub",
-        FontId::proportional(13.0),
+        title_text,
+        title_font.clone(),
         title_color,
     );
+    
+    // 动态计算标题宽度以完美对齐后面的控件
+    let title_w = ui.painter().layout_no_wrap(title_text.to_owned(), title_font, Color32::WHITE).rect.width();
     
     // Settings button next to title
     let settings_font = FontId::proportional(12.0);
     let settings_text = "Settings";
     let text_w = ui.painter().layout_no_wrap(settings_text.to_owned(), settings_font.clone(), Color32::WHITE).rect.width();
+    let settings_h = 24.0;
+    // 严格垂直居中对齐
     let settings_rect = Rect::from_min_size(
-        Pos2::new(rect.min.x + 90.0, rect.center().y - 8.0),
-        vec2(text_w + 16.0, 16.0)
+        Pos2::new(rect.min.x + 20.0 + title_w + 16.0, rect.center().y - (settings_h / 2.0)),
+        vec2(text_w + 16.0, settings_h)
     );
     let settings_resp = ui.interact(settings_rect, Id::new("titlebar_settings"), Sense::click());
     let txt_color = if settings_resp.hovered() { title_color } else { title_color.gamma_multiply(0.6) };

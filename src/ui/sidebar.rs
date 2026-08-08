@@ -47,8 +47,9 @@ fn name_secondary(dark: bool) -> Color32 {
     }
 }
 
-pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction {
+pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::config::ThemeSettings) -> SidebarAction {
     let mut action = SidebarAction::default();
+
     let dark = ui.visuals().dark_mode;
     
     // Clear drag state if mouse is released
@@ -59,9 +60,10 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction
     // ---- SESSIONS 分区标题 + 新增按钮 ----
     ui.add_space(16.0);
     ui.horizontal(|ui| {
-        ui.add_space(8.0);
+        ui.add_space(12.0); // SidePanel inner margin is 8.0, 8.0 + 12.0 = 20.0
         ui.label(RichText::new("SESSIONS").size(12.0).color(muted(dark)).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(12.0); // 从右侧往左加 12px 的边距，与卡片的右边缘对齐 (224.0 - 12.0 = 212.0)
             let add = egui::Button::new(RichText::new("＋").size(16.0).color(ACCENT)).frame(false);
             if ui
                 .add(add)
@@ -89,7 +91,7 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize) -> SidebarAction
         .show(ui, |ui| {
             for (idx, s) in sessions.iter().enumerate() {
                 let is_sel = idx == selected;
-                draw_card(ui, s, idx, is_sel, &mut action);
+                draw_card(ui, s, idx, is_sel, &mut action, theme);
                 ui.allocate_space(vec2(0.0, 2.0));
             }
         });
@@ -115,6 +117,7 @@ fn draw_card(
     idx: usize,
     is_sel: bool,
     action: &mut SidebarAction,
+    theme: &crate::config::ThemeSettings,
 ) {
     let dark = ui.visuals().dark_mode;
     let row_height = 56.0;
@@ -188,11 +191,11 @@ fn draw_card(
     let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
     let hover_color = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
     
-    // HeroUI Primary color for selected background (subtle)
+    let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
     let sel_color = if dark { 
-        Color32::from_rgba_premultiplied(0, 111, 238, 40)
+        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 40)
     } else { 
-        Color32::from_rgba_premultiplied(0, 111, 238, 24)
+        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 24)
     };
     
     // Interpolate background color
@@ -228,7 +231,7 @@ fn draw_card(
             painter.rect_stroke(
                 rect,
                 12.0,
-                Stroke::new(2.0, Color32::from_rgb(0, 111, 238).gamma_multiply(0.5)),
+                Stroke::new(2.0, Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.5)),
                 egui::StrokeKind::Inside,
             );
         }
@@ -269,8 +272,20 @@ fn draw_card(
         }
     };
 
-    // Draw the original card (faint if dragged)
-    render_card(ui.painter(), bg_rect, opacity, false, hovered && !dragged);
+    let delete_hovered = hovered && !dragged;
+    if bg != Color32::TRANSPARENT && !dragged {
+        let shadow_color = if dark { Color32::from_black_alpha(120) } else { Color32::from_black_alpha(30) };
+        ui.put(bg_rect, |ui: &mut Ui| {
+            egui::Frame::NONE
+                .corner_radius(12)
+                .shadow(egui::epaint::Shadow { offset: [0, 4].into(), blur: 12, spread: 0, color: shadow_color })
+                .show(ui, |ui| {
+                    ui.allocate_exact_size(bg_rect.size(), Sense::hover());
+                }).response
+        });
+    }
+    
+    render_card(ui.painter(), bg_rect, opacity, false, delete_hovered);
 
     if dragged {
         resp.dnd_set_drag_payload(idx);
@@ -283,7 +298,7 @@ fn draw_card(
             
             // Opaque background for readability
             let opaque_bg = if dark { Color32::from_rgb(45, 45, 45) } else { Color32::from_rgb(240, 240, 240) };
-            painter.rect_filled(drag_rect, 8.0, opaque_bg);
+            painter.rect_filled(drag_rect, 12.0, opaque_bg);
             
             render_card(&painter, drag_rect, 1.0, true, false);
         }

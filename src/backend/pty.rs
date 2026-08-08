@@ -30,6 +30,7 @@ impl PtyHandle {
         cwd: &Path,
         rows: u16,
         cols: u16,
+        dark_mode: bool,
     ) -> Result<(Self, Receiver<Vec<u8>>)> {
         let pty_system = native_pty_system();
         let size = PtySize {
@@ -51,6 +52,13 @@ impl PtyHandle {
         // 显式声明终端类型和真色彩支持，这样 omp/claude 就会输出彩色图标/渐变色
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        // 告诉终端应用当前的明暗主题，这样 omp 和 inquirer 类的交互提示可以自适应颜色
+        if dark_mode {
+            cmd.env("COLORFGBG", "15;0"); // 白字黑底
+        } else {
+            cmd.env("COLORFGBG", "0;15"); // 黑字白底
+        }
+        
         let child = pair
             .slave
             .spawn_command(cmd)

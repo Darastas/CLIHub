@@ -41,6 +41,12 @@ pub struct ThemeSettings {
     /// 自定义前景色（覆盖预设）
     #[serde(default)]
     pub foreground: Option<[u8; 3]>,
+    /// 自定义侧边栏选中卡片颜色
+    #[serde(default)]
+    pub sidebar_card_color: Option<[u8; 3]>,
+    /// 是否开启全局玻璃质感（半透明背景）
+    #[serde(default)]
+    pub glassmorphism: bool,
 }
 
 fn default_color_scheme() -> String {
@@ -54,6 +60,8 @@ impl Default for ThemeSettings {
             color_scheme: default_color_scheme(),
             background: None,
             foreground: None,
+            sidebar_card_color: None,
+            glassmorphism: false,
         }
     }
 }
