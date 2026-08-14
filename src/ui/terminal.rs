@@ -283,7 +283,7 @@ pub fn show(
                     ui.add_space(8.0);
                 }
 
-                // 新增实例按钮（带投影与边缘高光）
+                // 新增实例按钮（自然阴影与超细微边框）
                 let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
                 let is_plus_hovered = plus_resp.hovered();
                 let plus_hover_factor = ui.ctx().animate_bool(Id::new(("plus_tab_hover", session.id)), is_plus_hovered);
@@ -296,16 +296,16 @@ pub fn show(
                     (plus_base.b() as f32 * (1.0 - plus_hover_factor) + plus_hover.b() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
                     (plus_base.a() as f32 * (1.0 - plus_hover_factor) + plus_hover.a() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
                 );
-                let plus_stroke = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+                let plus_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
                 
                 let p = ui.painter();
-                // 投影
-                let plus_shadow = if dark { Color32::from_black_alpha(80) } else { Color32::from_black_alpha(18) };
-                p.rect_filled(plus_rect.translate(vec2(0.0, 2.0)), 12.0, plus_shadow);
+                // 柔和投影
+                let plus_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+                p.rect_filled(plus_rect.translate(vec2(0.0, 1.5)), 12.0, plus_shadow);
                 // 卡片底色
                 p.rect_filled(plus_rect, 12.0, plus_bg);
-                // 边缘高光
-                p.rect_stroke(plus_rect, 12.0, egui::Stroke::new(1.0, plus_stroke), egui::StrokeKind::Inside);
+                // 极细微边框
+                p.rect_stroke(plus_rect, 12.0, egui::Stroke::new(0.5, plus_stroke), egui::StrokeKind::Inside);
                 
                 let plus_fg = if is_plus_hovered {
                     if dark { Color32::WHITE } else { Color32::BLACK }
@@ -1142,17 +1142,11 @@ fn draw_tab(
     
     let bg = lerp_color(lerp_color(base_color, hover_color, hover_factor), sel_color, sel_factor);
 
-    // 边缘高光与精细边框描边
-    let base_stroke = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) };
-    let hover_stroke = if dark { Color32::from_white_alpha(22) } else { Color32::from_black_alpha(24) };
-    let sel_stroke = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 95 } else { 70 });
+    // 极细微边缘描边（纤细精致，绝不突兀粗厚）
+    let base_stroke = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(10) };
+    let hover_stroke = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(18) };
+    let sel_stroke = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 45 } else { 35 });
     let stroke_c = lerp_color(lerp_color(base_stroke, hover_stroke, hover_factor), sel_stroke, sel_factor);
-
-    // 顶部高光微反光条（顶光效果）
-    let top_hl_base = if dark { Color32::from_white_alpha(18) } else { Color32::from_white_alpha(60) };
-    let top_hl_hover = if dark { Color32::from_white_alpha(35) } else { Color32::from_white_alpha(90) };
-    let top_hl_sel = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 140 } else { 100 });
-    let top_highlight = lerp_color(lerp_color(top_hl_base, top_hl_hover, hover_factor), top_hl_sel, sel_factor);
 
     // 文字颜色插值（完全与 Session 卡片一致）
     let name_normal = if dark { Color32::from_gray(160) } else { Color32::from_gray(100) };
@@ -1162,11 +1156,11 @@ fn draw_tab(
 
     let painter = ui.painter();
 
-    // 1) 绘制柔和投影 (Drop Shadow，与 Session 卡片机制完全一致)
+    // 1) 绘制柔和下沉投影 (Drop Shadow，与 Session 卡片机制完全一致)
     if bg != Color32::TRANSPARENT {
-        let shadow_alpha = (if dark { 80.0 } else { 18.0 } * (1.0 + sel_factor * 0.4 + hover_factor * 0.2)) as u8;
+        let shadow_alpha = (if dark { 60.0 } else { 15.0 } * (1.0 + sel_factor * 0.3 + hover_factor * 0.15)) as u8;
         let shadow_color = Color32::from_black_alpha(shadow_alpha);
-        painter.rect_filled(tab_rect.translate(vec2(0.0, 2.0)), 12.0, shadow_color);
+        painter.rect_filled(tab_rect.translate(vec2(0.0, 1.5)), 12.0, shadow_color);
     }
 
     // 2) 绘制卡片本体背景 (12.0px 圆角矩形)
@@ -1174,17 +1168,8 @@ fn draw_tab(
         painter.rect_filled(tab_rect, 12.0, bg);
     }
 
-    // 3) 绘制边缘高光描边 (Edge Stroke Highlight)
-    painter.rect_stroke(tab_rect, 12.0, egui::Stroke::new(1.0, stroke_c), egui::StrokeKind::Inside);
-
-    // 4) 绘制顶部微光反射层（Top Rim Light，提升玻璃拟态与立体质感）
-    painter.line_segment(
-        [
-            Pos2::new(tab_rect.min.x + 10.0, tab_rect.min.y + 0.5),
-            Pos2::new(tab_rect.max.x - 10.0, tab_rect.min.y + 0.5),
-        ],
-        egui::Stroke::new(1.0, top_highlight),
-    );
+    // 3) 绘制细腻微边框 (0.5px 发丝级微描边)
+    painter.rect_stroke(tab_rect, 12.0, egui::Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
 
     // 标题文本（已删除指示灯，左侧留出舒适的 14px 内边距）
     painter.text(
