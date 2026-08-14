@@ -1232,8 +1232,14 @@ pub fn set_clipboard_text(text: &str) -> bool {
 }
 
 #[cfg(not(windows))]
+pub fn get_clipboard_text() -> Option<String> {
+    None
+}
+
+#[cfg(not(windows))]
 pub fn set_clipboard_text(_text: &str) -> bool {
     false
 }
+
 
 
