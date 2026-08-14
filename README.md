@@ -81,6 +81,15 @@ cargo run              # Development mode
 cargo build --release  # Release build
 ```
 
+### Releases & Changelog (v0.1.1)
+
+- **Smart Path Truncation**: Automatically compresses home paths into `~` and formats long project directories with clean middle ellipses (`C:\...\project`), with instant full path tooltips on hover.
+- **Rebuilt Drag-and-Drop Reordering**:
+  - Fixed upward drag displacement, threshold calculation, and event hijacking.
+  - Eliminated layout cursor mutations (`ui.put`), resolving abnormal vertical gaps and displaced slots.
+  - Fixed invalid interaction sense errors (red outline warnings on dragged items).
+- **Multi-Architecture Release**: Precompiled binaries for Windows x64, x86 (32-bit), and ARM64.
+
 ---
 
 ## License
