@@ -363,6 +363,8 @@ impl HubApp {
 
     /// 为某个会话新建一个标签页并激活。
     fn spawn_tab(&mut self, session_idx: usize) {
+        let term_theme = self.build_theme();
+        let dark_mode = self.config.theme.dark;
         let Some(s) = self.sessions.get_mut(session_idx) else {
             return;
         };
@@ -371,10 +373,10 @@ impl HubApp {
         let command = s.command.clone();
         let cwd = s.cwd.clone();
         let mut inst = TerminalInstance::new();
-        match PtyHandle::spawn(&command, &[], &cwd, 24, 80, self.config.theme.dark) {
+        match PtyHandle::spawn(&command, &[], &cwd, 24, 80, dark_mode) {
             Ok((pty, rx)) => {
                 inst.alive = pty.alive.clone();
-                inst.terminal = Some(Terminal::new(24, 80));
+                inst.terminal = Some(Terminal::new(24, 80, term_theme.to_theme_colors()));
                 inst.pty = Some(pty);
                 inst.rx = Some(rx);
             }

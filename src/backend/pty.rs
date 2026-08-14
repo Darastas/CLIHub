@@ -41,22 +41,39 @@ impl PtyHandle {
         };
         let pair = pty_system.openpty(size).context("打开 PTY 失败")?;
 
+        let mut final_args = args.to_vec();
+        let lower_cmd = command.trim().to_lowercase();
+        if (lower_cmd == "codex" || lower_cmd.ends_with("/codex") || lower_cmd.ends_with("\\codex") || lower_cmd.ends_with("codex.exe") || lower_cmd.ends_with("codex.cmd"))
+            && !args.iter().any(|a| a.starts_with("-c") || a.starts_with("--config"))
+        {
+            if dark_mode {
+                final_args.push("-c".to_string());
+                final_args.push("tui.theme=\"catppuccin-mocha\"".to_string());
+            } else {
+                final_args.push("-c".to_string());
+                final_args.push("tui.theme=\"solarized-light\"".to_string());
+            }
+        }
+
         // Windows 上解析命令（npm 垫片 .cmd/.bat 需用 cmd.exe /C 包装）
-        let (program, args) = resolve_command(command, args);
+        let (program, args) = resolve_command(command, &final_args);
         let mut cmd = CommandBuilder::new(&program);
         cmd.args(&args);
         cmd.cwd(cwd);
         for (k, v) in std::env::vars() {
             cmd.env(k, v);
         }
-        // 显式声明终端类型和真色彩支持，这样 omp/claude 就会输出彩色图标/渐变色
+        // 显式声明终端类型和真色彩支持，这样 omp/claude/codex 就会输出彩色图标/渐变色
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        // 告诉终端应用当前的明暗主题，这样 omp 和 inquirer 类的交互提示可以自适应颜色
+        cmd.env("TERM_PROGRAM", "CLIHub");
+        // 告诉终端应用当前的明暗主题，这样 omp、inquirer 以及 codex 等交互提示可以自适应颜色
         if dark_mode {
             cmd.env("COLORFGBG", "15;0"); // 白字黑底
+            cmd.env("CODEX_THEME", "dark");
         } else {
             cmd.env("COLORFGBG", "0;15"); // 黑字白底
+            cmd.env("CODEX_THEME", "light");
         }
         
         // 当设置为 xterm-256color 时，很多跨平台 AI 工具会进入 POSIX 模式，从而不再调用 Windows API 读取语言。
@@ -253,7 +270,7 @@ mod tests {
     #[ignore]
     fn cmd_raw_output() {
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80).expect("spawn cmd");
+        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true).expect("spawn cmd");
         std::thread::sleep(std::time::Duration::from_secs(2));
         let mut all = Vec::new();
         while let Ok(chunk) = rx.try_recv() {
@@ -273,11 +290,11 @@ mod tests {
     #[test]
     #[ignore]
     fn cmd_through_terminal() {
-        use crate::backend::terminal::Terminal;
+        use crate::backend::terminal::{Terminal, TermThemeColors};
 
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80).unwrap();
-        let mut term = Terminal::new(24, 80);
+        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true).unwrap();
+        let mut term = Terminal::new(24, 80, TermThemeColors::default());
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
         let mut writes_roundtripped = 0usize;
@@ -317,11 +334,11 @@ mod tests {
     #[test]
     #[ignore]
     fn claude_through_terminal() {
-        use crate::backend::terminal::Terminal;
+        use crate::backend::terminal::{Terminal, TermThemeColors};
 
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) = PtyHandle::spawn("claude", &[], &cwd, 30, 100).unwrap();
-        let mut term = Terminal::new(30, 100);
+        let (mut handle, rx) = PtyHandle::spawn("claude", &[], &cwd, 30, 100, true).unwrap();
+        let mut term = Terminal::new(30, 100, TermThemeColors::default());
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
         while std::time::Instant::now() < deadline {
@@ -366,7 +383,7 @@ mod tests {
     fn spawn_claude_real() {
         let cwd = std::env::current_dir().unwrap();
         let (mut handle, rx) =
-            PtyHandle::spawn("claude", &[], &cwd, 24, 80).expect("spawn claude 失败");
+            PtyHandle::spawn("claude", &[], &cwd, 24, 80, true).expect("spawn claude 失败");
         std::thread::sleep(std::time::Duration::from_secs(3));
         assert!(
             handle.alive.load(Ordering::SeqCst),

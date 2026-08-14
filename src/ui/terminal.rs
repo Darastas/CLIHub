@@ -214,6 +214,36 @@ impl TermTheme {
     pub fn is_dark(&self) -> bool {
         self.background.r() < 128 && self.background.g() < 128 && self.background.b() < 128
     }
+
+    /// 转换为 PTY OSC 响应使用的结构体。
+    pub fn to_theme_colors(&self) -> crate::backend::terminal::TermThemeColors {
+        let mut ansi = [Rgb { r: 0, g: 0, b: 0 }; 16];
+        for i in 0..16 {
+            ansi[i] = Rgb {
+                r: self.ansi[i].r(),
+                g: self.ansi[i].g(),
+                b: self.ansi[i].b(),
+            };
+        }
+        crate::backend::terminal::TermThemeColors {
+            foreground: Rgb {
+                r: self.foreground.r(),
+                g: self.foreground.g(),
+                b: self.foreground.b(),
+            },
+            background: Rgb {
+                r: self.background.r(),
+                g: self.background.g(),
+                b: self.background.b(),
+            },
+            cursor: Rgb {
+                r: self.cursor.r(),
+                g: self.cursor.g(),
+                b: self.cursor.b(),
+            },
+            ansi,
+        }
+    }
 }
 
 /// `input_enabled`：是否把键盘事件转发给 PTY（由 App 决定，如新增会话
@@ -501,14 +531,10 @@ fn paint_grid(
     rows: u16,
     focused: bool,
 ) {
-    // Update the terminal's idea of the background color so OSC 11 queries respond correctly
+    // Update the terminal's idea of the theme colors so OSC queries respond correctly
     {
-        let mut bg = terminal.bg_color.lock().unwrap();
-        *bg = Rgb {
-            r: theme.background.r(),
-            g: theme.background.g(),
-            b: theme.background.b(),
-        };
+        let mut tc = terminal.theme_colors.lock().unwrap();
+        *tc = theme.to_theme_colors();
     }
 
     let term = &terminal.term;
@@ -561,6 +587,18 @@ fn paint_grid(
             }
         }
 
+        // 浅色主题下全宽深色容器（如输入框，span >= 20）智能调和；短色块（如 Logo，span < 20）保持 100% 原色
+        let mut container_runs: Vec<(usize, usize)> = Vec::new();
+        if !theme.is_dark() {
+            for run in &mut runs {
+                let span_len = run.1 - run.0;
+                if span_len >= 20 && luminance(run.2) < 80.0 {
+                    run.2 = Color32::from_rgb(234, 236, 240);
+                    container_runs.push((run.0, run.1));
+                }
+            }
+        }
+
         // 2) 文本 span（连续非空格、同色、同粗体 → 一个 painter.text）
         let mut spans: Vec<(usize, String, Color32, bool)> = Vec::new();
         let mut cur_start: Option<usize> = None;
@@ -574,15 +612,15 @@ fn paint_grid(
             if flags.contains(Flags::WIDE_CHAR_SPACER) {
                 continue;
             }
-            let (mut fg, bg) = resolve_cell(cell, colors, theme);
-            if flags.contains(Flags::INVERSE) {
-                fg = bg;
+            let (mut color, _) = resolve_cell(cell, colors, theme);
+            
+            // 若字符落在调和为浅色容器的区间内且文字偏亮，则加深为深色文本
+            if container_runs.iter().any(|(s, e)| ci >= *s && ci < *e) {
+                if luminance(color) > 100.0 {
+                    color = Color32::from_rgb(28, 30, 36);
+                }
             }
-            let dim = flags.contains(Flags::DIM);
-            let mut color = fg;
-            if dim {
-                color = Color32::from_rgb(fg.r() / 2, fg.g() / 2, fg.b() / 2);
-            }
+
             let is_bold = flags.contains(Flags::BOLD);
             let ch = if flags.contains(Flags::HIDDEN) {
                 ' '
@@ -712,9 +750,55 @@ fn paint_grid(
     let _ = rows;
 }
 
+fn luminance(c: Color32) -> f32 {
+    0.2126 * (c.r() as f32) + 0.7152 * (c.g() as f32) + 0.0722 * (c.b() as f32)
+}
+
+fn is_graphic_char(c: char) -> bool {
+    // 常见的 Unicode 绘图字符、色块、方块（ANSI 图形/Logo 使用）
+    matches!(
+        c,
+        ' ' | '█' | '▀' | '▄' | '▌' | '▐' | '■' | '▲' | '▼' | '◆' | '●' | '░' | '▒' | '▓'
+            | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | '─' | '│'
+    )
+}
+
 fn resolve_cell(cell: &Cell, colors: &Colors, theme: &TermTheme) -> (Color32, Color32) {
-    let fg = resolve_color(&cell.fg, colors, theme, theme.foreground);
-    let bg = resolve_color(&cell.bg, colors, theme, theme.background);
+    let mut fg = resolve_color(&cell.fg, colors, theme, theme.foreground);
+    let mut bg = resolve_color(&cell.bg, colors, theme, theme.background);
+
+    // 1) 处理 SGR 7 (INVERSE 反显)
+    if cell.flags.contains(Flags::INVERSE) {
+        std::mem::swap(&mut fg, &mut bg);
+    }
+
+    // 2) 处理 SGR 2 (DIM 弱化)
+    if cell.flags.contains(Flags::DIM) {
+        let base = theme.background;
+        fg = Color32::from_rgb(
+            ((fg.r() as u16 + base.r() as u16) / 2) as u8,
+            ((fg.g() as u16 + base.g() as u16) / 2) as u8,
+            ((fg.b() as u16 + base.b() as u16) / 2) as u8,
+        );
+    }
+
+    // 3) 仅对常规文字字符执行对比度保护，绝对不干扰图形色块与 Logo
+    if !is_graphic_char(cell.c) {
+        let lum_fg = luminance(fg);
+        let lum_bg = luminance(bg);
+        let contrast_diff = (lum_fg - lum_bg).abs();
+
+        if contrast_diff < 35.0 {
+            if lum_bg < 128.0 {
+                // 背景偏深，文字太暗看不清 -> 提升文字为浅亮色
+                fg = Color32::from_rgb(228, 231, 236);
+            } else {
+                // 背景偏浅，文字太浅看不清 -> 加深文字为深色
+                fg = Color32::from_rgb(32, 35, 42);
+            }
+        }
+    }
+
     (fg, bg)
 }
 
@@ -724,12 +808,25 @@ fn resolve_color(color: &TermColor, colors: &Colors, theme: &TermTheme, fallback
             let idx = *n as usize;
             if idx < 16 {
                 theme.ansi[idx]
+            } else if *n == alacritty_terminal::vte::ansi::NamedColor::Foreground {
+                theme.foreground
+            } else if *n == alacritty_terminal::vte::ansi::NamedColor::Background {
+                theme.background
+            } else if *n == alacritty_terminal::vte::ansi::NamedColor::Cursor {
+                theme.cursor
             } else {
                 colors[*n].map(rgb_to_color32).unwrap_or(fallback)
             }
         }
         TermColor::Spec(rgb) => rgb_to_color32(*rgb),
-        TermColor::Indexed(i) => colors[*i as usize].map(rgb_to_color32).unwrap_or(fallback),
+        TermColor::Indexed(i) => {
+            let idx = *i as usize;
+            if idx < 16 {
+                theme.ansi[idx]
+            } else {
+                colors[*i as usize].map(rgb_to_color32).unwrap_or(fallback)
+            }
+        }
     }
 }
 

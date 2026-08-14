@@ -30,13 +30,51 @@ pub struct SelectionRange {
 }
 
 
+use alacritty_terminal::vte::ansi::NamedColor;
+
+#[derive(Debug, Clone, Copy)]
+pub struct TermThemeColors {
+    pub foreground: Rgb,
+    pub background: Rgb,
+    pub cursor: Rgb,
+    pub ansi: [Rgb; 16],
+}
+
+impl Default for TermThemeColors {
+    fn default() -> Self {
+        Self {
+            foreground: Rgb { r: 56, g: 58, b: 66 },
+            background: Rgb { r: 250, g: 250, b: 250 },
+            cursor: Rgb { r: 191, g: 193, b: 200 },
+            ansi: [
+                Rgb { r: 56, g: 58, b: 66 },
+                Rgb { r: 228, g: 86, b: 73 },
+                Rgb { r: 80, g: 161, b: 79 },
+                Rgb { r: 193, g: 132, b: 1 },
+                Rgb { r: 1, g: 132, b: 188 },
+                Rgb { r: 166, g: 38, b: 164 },
+                Rgb { r: 9, g: 151, b: 179 },
+                Rgb { r: 250, g: 250, b: 250 },
+                Rgb { r: 79, g: 82, b: 93 },
+                Rgb { r: 228, g: 86, b: 73 },
+                Rgb { r: 80, g: 161, b: 79 },
+                Rgb { r: 193, g: 132, b: 1 },
+                Rgb { r: 1, g: 132, b: 188 },
+                Rgb { r: 166, g: 38, b: 164 },
+                Rgb { r: 9, g: 151, b: 179 },
+                Rgb { r: 250, g: 250, b: 250 },
+            ],
+        }
+    }
+}
+
 /// 把 alacritty 需要写回 PTY 的事件转发给应用层。
 pub struct HubListener {
     pty_tx: Sender<String>,
     /// 当前 (cols, rows)，供尺寸查询应答
     size: Arc<Mutex<(usize, usize)>>,
-    /// 背景色，供 OSC 颜色查询应答
-    bg_color: Arc<Mutex<Rgb>>,
+    /// 主题颜色配置，供 OSC 颜色查询应答
+    theme_colors: Arc<Mutex<TermThemeColors>>,
 }
 
 impl EventListener for HubListener {
@@ -57,9 +95,20 @@ impl EventListener for HubListener {
                 };
                 let _ = self.pty_tx.send(formatter(size));
             }
-            // OSC 颜色查询：用背景色应答
-            Event::ColorRequest(_, formatter) => {
-                let rgb = *self.bg_color.lock().unwrap();
+            // OSC 颜色查询：按 index 分别以对应颜色（前景/背景/光标/调色板）应答
+            Event::ColorRequest(index, formatter) => {
+                let tc = *self.theme_colors.lock().unwrap();
+                let rgb = if index == NamedColor::Background as usize {
+                    tc.background
+                } else if index == NamedColor::Foreground as usize {
+                    tc.foreground
+                } else if index == NamedColor::Cursor as usize {
+                    tc.cursor
+                } else if index < 16 {
+                    tc.ansi[index]
+                } else {
+                    tc.background
+                };
                 let _ = self.pty_tx.send(formatter(rgb));
             }
             _ => {}
@@ -93,25 +142,21 @@ pub struct Terminal {
     processor: Processor,
     pty_rx: Receiver<String>,
     size: Arc<Mutex<(usize, usize)>>,
-    pub bg_color: Arc<Mutex<Rgb>>,
+    pub theme_colors: Arc<Mutex<TermThemeColors>>,
     cols: u16,
     rows: u16,
     pub selection: Option<SelectionRange>,
 }
 
 impl Terminal {
-    pub fn new(cols: u16, rows: u16) -> Self {
+    pub fn new(cols: u16, rows: u16, theme_colors: TermThemeColors) -> Self {
         let (pty_tx, pty_rx) = unbounded();
         let size = Arc::new(Mutex::new((cols as usize, rows as usize)));
-        let bg_color = Arc::new(Mutex::new(Rgb {
-            r: 255,
-            g: 255,
-            b: 255,
-        }));
+        let theme_colors = Arc::new(Mutex::new(theme_colors));
         let listener = HubListener {
             pty_tx,
             size: size.clone(),
-            bg_color: bg_color.clone(),
+            theme_colors: theme_colors.clone(),
         };
         let term = Term::new(Config::default(), &TermDims { cols: cols as usize, rows: rows as usize }, listener);
         
@@ -120,7 +165,7 @@ impl Terminal {
             processor: Processor::new(),
             pty_rx,
             size,
-            bg_color,
+            theme_colors,
             cols,
             rows,
             selection: None,
@@ -243,7 +288,7 @@ mod tests {
     /// 喂入普通文本应出现在网格中。
     #[test]
     fn feed_updates_grid() {
-        let mut t = Terminal::new(40, 10);
+        let mut t = Terminal::new(40, 10, TermThemeColors::default());
         t.feed(b"hello\r\nworld");
 
         let grid = t.term.grid();
@@ -254,7 +299,7 @@ mod tests {
     /// ANSI 颜色序列应被解析，不影响字符本身。
     #[test]
     fn ansi_processed() {
-        let mut t = Terminal::new(40, 10);
+        let mut t = Terminal::new(40, 10, TermThemeColors::default());
         t.feed(b"\x1b[31mRED\x1b[0m");
         let cell = &t.term.grid()[Line(0)][Column(0)];
         assert_eq!(cell.c, 'R');
@@ -263,7 +308,7 @@ mod tests {
     /// resize 后网格行列随之变化。
     #[test]
     fn resize_changes_grid() {
-        let mut t = Terminal::new(10, 5);
+        let mut t = Terminal::new(10, 5, TermThemeColors::default());
         assert_eq!(t.term.grid().screen_lines(), 5);
         assert_eq!(t.term.grid().columns(), 10);
         t.resize(20, 8);
@@ -274,7 +319,7 @@ mod tests {
     /// DSR 查询（`ESC[6n`）应产生写回 PTY 的应答，而不是被丢弃。
     #[test]
     fn dsr_produces_pty_write() {
-        let mut t = Terminal::new(40, 10);
+        let mut t = Terminal::new(40, 10, TermThemeColors::default());
         // 模拟终端查询光标位置（claude 等 TUI 启动时会发这个）
         t.feed(b"\x1b[6n");
         let writes = t.drain_pty_writes();
