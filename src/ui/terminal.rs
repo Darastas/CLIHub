@@ -9,7 +9,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
-use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
+use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
 
 use crate::state::{Session, TerminalInstance};
 
@@ -39,7 +39,7 @@ pub struct TermTheme {
 
 impl TermTheme {
     pub fn from_scheme(name: &str) -> Self {
-        let mut theme = match name {
+        let theme = match name {
             "One Half Light" => Self {
                 font_size: 15.0,
                 font_family: egui::FontFamily::Monospace,
@@ -312,7 +312,8 @@ pub fn show(
         if resp.clicked() || (input_enabled && !resp.has_focus()) {
             resp.request_focus();
         }
-        let focused = resp.has_focus();
+        let window_focused = ui.input(|i| i.focused);
+        let focused = resp.has_focus() && window_focused;
 
         // 网格可用区域：内边距
         let grid_rect = Rect::from_min_max(
@@ -355,27 +356,57 @@ pub fn show(
         
 
         if let Some(pos) = resp.interact_pointer_pos() {
-            if grid_rect.contains(pos) {
-                let col = ((pos.x - grid_rect.min.x) / col_w).floor().max(0.0) as usize;
-                let line = ((pos.y - grid_rect.min.y) / row_h).floor().max(0.0) as usize;
-                
-                let gp = crate::backend::terminal::GridPoint { line, col };
-                
-                if let Some(t) = &mut tab.terminal {
-                    if resp.drag_started() {
-                        t.selection = Some(crate::backend::terminal::SelectionRange { start: gp, end: gp });
-                    } else if resp.dragged() {
-                        if let Some(sel) = &mut t.selection {
-                            sel.end = gp;
-                        }
+            let col = ((pos.x - grid_rect.min.x) / col_w).floor().clamp(0.0, (cols.saturating_sub(1)) as f32) as usize;
+            let line = ((pos.y - grid_rect.min.y) / row_h).floor().clamp(0.0, (rows.saturating_sub(1)) as f32) as usize;
+            
+            let gp = crate::backend::terminal::GridPoint { line, col };
+            
+            if let Some(t) = &mut tab.terminal {
+                if resp.drag_started_by(egui::PointerButton::Primary) {
+                    t.selection = Some(crate::backend::terminal::SelectionRange { start: gp, end: gp });
+                } else if resp.dragged_by(egui::PointerButton::Primary) {
+                    if let Some(sel) = &mut t.selection {
+                        sel.end = gp;
+                    }
+                }
+            }
+        }
+
+        // 选区拖拽结束：自动同步写入系统剪贴板（选中文本即复制，无需多按快捷键）
+        if resp.drag_stopped_by(egui::PointerButton::Primary) {
+            if let Some(t) = &tab.terminal {
+                if let Some(sel_text) = t.selected_text() {
+                    if !sel_text.is_empty() {
+                        set_clipboard_text(&sel_text);
+                        ui.ctx().copy_text(sel_text);
                     }
                 }
             }
         }
         
-        if resp.clicked() {
+        // 单击空白处取消选区（只有在没有发生拖拽且确实是单纯点击时才清除）
+        if resp.clicked_by(egui::PointerButton::Primary) && !resp.dragged_by(egui::PointerButton::Primary) {
             if let Some(t) = &mut tab.terminal {
                 t.selection = None;
+            }
+        }
+        
+        // 经典终端右键交互：有选区则复制并取消选中，无选区则从剪贴板粘贴
+        if resp.secondary_clicked() {
+            if let Some(t) = &mut tab.terminal {
+                if t.selection.is_some() {
+                    if let Some(sel_text) = t.selected_text() {
+                        if !sel_text.is_empty() {
+                            set_clipboard_text(&sel_text);
+                            ui.ctx().copy_text(sel_text);
+                        }
+                    }
+                    t.selection = None;
+                } else if let Some(clip) = get_clipboard_text() {
+                    if let Some(pty) = &mut tab.pty {
+                        let _ = pty.write(clip.as_bytes());
+                    }
+                }
             }
         }
 
@@ -386,8 +417,8 @@ pub fn show(
             p.resize(cols, rows);
         }
 
-        // 输入转发（由 App 控制开关，与焦点无关）+ 滚轮
-        if input_enabled {
+        // 仅在窗口具有 OS 焦点且终端处于激活输入状态时转发键盘事件
+        if input_enabled && focused {
             if let Some(err) = forward_keys(ui, tab) {
                 session.error = Some(err);
             }
@@ -839,6 +870,9 @@ fn rgb_to_color32(rgb: Rgb) -> Color32 {
 // ---------------------------------------------------------------------------
 
 fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
+    if !ui.input(|i| i.focused) {
+        return None;
+    }
     let events = ui.input(|i| i.events.clone());
     let mut out: Vec<u8> = Vec::new();
     
@@ -877,13 +911,7 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
 
             // ---- 普通事件（非 IME 组合态）----
             egui::Event::Copy => {
-                if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
-                    if !sel.is_empty() {
-                        ui.ctx().copy_text(sel);
-                        continue;
-                    }
-                }
-                out.extend_from_slice(b"\x03"); // Ctrl+C 兜底
+                out.extend_from_slice(b"\x03"); // 终端经典行为：Ctrl+C 始终发送 SIGINT (^C)
             }
             egui::Event::Paste(text) => out.extend_from_slice(text.as_bytes()),
             egui::Event::Text(text) => {
@@ -914,13 +942,35 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                 modifiers,
                 ..
             } => {
-                if modifiers.ctrl && key == egui::Key::C && tab.terminal.as_ref().map_or(false, |t| t.selection.is_some()) {
+                let is_ctrl_or_cmd = modifiers.ctrl || modifiers.command;
+                
+                // 终端专用复制快捷键（Ctrl+Shift+C / Cmd+Shift+C / Ctrl+Insert）
+                // 保证常规 Ctrl+C 纯粹用于发送 SIGINT 中断退出应用，Shift+C 正常输入字符
+                let is_copy_key = (is_ctrl_or_cmd && modifiers.shift && key == egui::Key::C)
+                    || (key == egui::Key::Insert && modifiers.ctrl);
+
+                if is_copy_key {
                     if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
                         if !sel.is_empty() {
+                            set_clipboard_text(&sel);
                             ui.ctx().copy_text(sel);
                             continue;
                         }
                     }
+                    continue;
+                }
+
+                // 粘贴快捷键：
+                // 1) 终端标准 Ctrl+Shift+V / Cmd+Shift+V
+                // 2) 终端标准 Shift+Insert
+                let is_paste_key = (is_ctrl_or_cmd && modifiers.shift && key == egui::Key::V)
+                    || (modifiers.shift && key == egui::Key::Insert);
+
+                if is_paste_key {
+                    if let Some(clip) = get_clipboard_text() {
+                        out.extend_from_slice(clip.as_bytes());
+                    }
+                    continue;
                 }
                 
                 if let Some(bytes) = map_key(key, &modifiers) {
@@ -1094,3 +1144,96 @@ fn draw_tab(
     }
     None
 }
+
+/// 读取系统剪贴板文本（Windows 走 Win32 API 零依赖无额外分配，跨平台回退 None）
+#[cfg(windows)]
+pub fn get_clipboard_text() -> Option<String> {
+    use std::ptr::null_mut;
+    unsafe extern "system" {
+        fn OpenClipboard(hWndNewOwner: *mut std::ffi::c_void) -> i32;
+        fn CloseClipboard() -> i32;
+        fn GetClipboardData(uFormat: u32) -> *mut std::ffi::c_void;
+        fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut u16;
+        fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    unsafe {
+        if OpenClipboard(null_mut()) == 0 {
+            return None;
+        }
+        let handle = GetClipboardData(CF_UNICODETEXT);
+        if handle.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let ptr = GlobalLock(handle);
+        if ptr.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let mut len = 0;
+        while *ptr.add(len) != 0 {
+            len += 1;
+        }
+        let slice = std::slice::from_raw_parts(ptr, len);
+        let s = String::from_utf16_lossy(slice);
+        GlobalUnlock(handle);
+        CloseClipboard();
+        Some(s)
+    }
+}
+
+/// 将文本写入系统剪贴板（Windows 走 Win32 原生 API，零延迟、零依赖、立即生效）
+#[cfg(windows)]
+pub fn set_clipboard_text(text: &str) -> bool {
+    use std::ptr::null_mut;
+    unsafe extern "system" {
+        fn OpenClipboard(hWndNewOwner: *mut std::ffi::c_void) -> i32;
+        fn CloseClipboard() -> i32;
+        fn EmptyClipboard() -> i32;
+        fn SetClipboardData(uFormat: u32, hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        fn GlobalAlloc(uFlags: u32, dwBytes: usize) -> *mut std::ffi::c_void;
+        fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut u16;
+        fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
+        fn GlobalFree(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    const GMEM_MOVEABLE: u32 = 0x0002;
+
+    let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let bytes_len = utf16.len() * std::mem::size_of::<u16>();
+
+    unsafe {
+        if OpenClipboard(null_mut()) == 0 {
+            return false;
+        }
+        EmptyClipboard();
+        let h_mem = GlobalAlloc(GMEM_MOVEABLE, bytes_len);
+        if h_mem.is_null() {
+            CloseClipboard();
+            return false;
+        }
+        let ptr = GlobalLock(h_mem);
+        if ptr.is_null() {
+            GlobalFree(h_mem);
+            CloseClipboard();
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr, utf16.len());
+        GlobalUnlock(h_mem);
+        if SetClipboardData(CF_UNICODETEXT, h_mem).is_null() {
+            GlobalFree(h_mem);
+            CloseClipboard();
+            return false;
+        }
+        CloseClipboard();
+        true
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_clipboard_text(_text: &str) -> bool {
+    false
+}
+
+

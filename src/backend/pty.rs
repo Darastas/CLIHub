@@ -270,7 +270,7 @@ mod tests {
     #[ignore]
     fn cmd_raw_output() {
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true).expect("spawn cmd");
+        let (handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true).expect("spawn cmd");
         std::thread::sleep(std::time::Duration::from_secs(2));
         let mut all = Vec::new();
         while let Ok(chunk) = rx.try_recv() {
@@ -382,7 +382,7 @@ mod tests {
     #[ignore]
     fn spawn_claude_real() {
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) =
+        let (handle, rx) =
             PtyHandle::spawn("claude", &[], &cwd, 24, 80, true).expect("spawn claude 失败");
         std::thread::sleep(std::time::Duration::from_secs(3));
         assert!(

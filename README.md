@@ -81,6 +81,22 @@ cargo run              # Development mode
 cargo build --release  # Release build
 ```
 
+### Releases & Changelog (v0.1.2)
+
+- **Native Win32 Direct Clipboard & Full Selection Copying**:
+  - Integrated native Win32 clipboard API (UTF-16) for rock-solid, zero-latency clipboard transfers without loss across applications.
+  - QuickEdit mode: Selection is automatically copied to system clipboard upon mouse release, supporting single-line, multi-line, reverse, and CJK wide-character extraction.
+  - Comprehensive Shortcuts: `Ctrl+Shift+C` / `Cmd+Shift+C` / `Ctrl+Insert` for copy, `Ctrl+Shift+V` / `Cmd+Shift+V` / `Shift+Insert` for paste.
+  - Right-Click Quick Actions: Right-click with selection copies and deselects; right-click without selection pastes from clipboard.
+- **Background Window Focus Guard & Signal Isolation**:
+  - Strictly enforces OS window focus guards; never intercepts or forwards keys (such as `Ctrl+C` in other applications) when running in the background.
+  - Restores regular `Ctrl+C` strictly for terminal `SIGINT` interruption and app termination.
+- **Process Exit Infinite Loop Fix**:
+  - Fixed infinite recursion / frame spam of `[process exited]` caused by repeated `pty.child.try_wait()` invocations.
+- **Multi-Architecture Release**: Precompiled binaries for Windows x64 (x86_64), x86 (32-bit), and ARM64.
+
+---
+
 ### Releases & Changelog (v0.1.1)
 
 - **Smart Path Truncation**: Automatically compresses home paths into `~` and formats long project directories with clean middle ellipses (`C:\...\project`), with instant full path tooltips on hover.

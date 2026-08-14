@@ -235,11 +235,15 @@ impl Terminal {
         
         let grid = self.term.grid();
         let display_offset = grid.display_offset();
-        let mut text = String::new();
+        let history = grid.history_size() as i32;
+        let screen = grid.screen_lines() as i32;
         
         let mut line_texts = Vec::new();
         for l in start_line..=end_line {
-            let actual_line = l as i32 + display_offset as i32;
+            let actual_line = l as i32 - display_offset as i32;
+            if actual_line < -history || actual_line >= screen {
+                continue;
+            }
             let row = &grid[Line(actual_line)];
             
             let sc = if l == start_line { start_col } else { 0 };
@@ -329,4 +333,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn selected_text_basic_and_reverse() {
+        let mut t = Terminal::new(40, 10, TermThemeColors::default());
+        t.feed(b"Hello World\r\nRust Terminal\r\n");
+
+        // 正向选择 "World" (line 0, col 6..10)
+        t.selection = Some(SelectionRange {
+            start: GridPoint { line: 0, col: 6 },
+            end: GridPoint { line: 0, col: 10 },
+        });
+        assert_eq!(t.selected_text().as_deref(), Some("World"));
+
+        // 反向选择 "World"
+        t.selection = Some(SelectionRange {
+            start: GridPoint { line: 0, col: 10 },
+            end: GridPoint { line: 0, col: 6 },
+        });
+        assert_eq!(t.selected_text().as_deref(), Some("World"));
+    }
+
+    #[test]
+    fn selected_text_chinese_wide_char() {
+        let mut t = Terminal::new(40, 10, TermThemeColors::default());
+        t.feed("你好世界\r\n".as_bytes());
+
+        // 选择整个 "你好世界" (每个汉字占 2 列宽度，4个汉字共 8 列: 0..7)
+        t.selection = Some(SelectionRange {
+            start: GridPoint { line: 0, col: 0 },
+            end: GridPoint { line: 0, col: 7 },
+        });
+        assert_eq!(t.selected_text().as_deref(), Some("你好世界"));
+    }
+
+    #[test]
+    fn selected_text_with_scrollback() {
+        let mut t = Terminal::new(40, 3, TermThemeColors::default());
+        t.feed(b"line 1\r\nline 2\r\nline 3\r\nline 4\r\nline 5\r\n");
+        
+        // 3 行屏幕经 5 次换行后，屏幕显示 line 4, line 5, 空行。
+        // 向上回滚 2 行后，第 0 行显示 line 2
+        t.scroll_display(2);
+        t.selection = Some(SelectionRange {
+            start: GridPoint { line: 0, col: 0 },
+            end: GridPoint { line: 0, col: 5 },
+        });
+        assert_eq!(t.selected_text().as_deref(), Some("line 2"));
+    }
 }
+

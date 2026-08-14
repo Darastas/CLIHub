@@ -436,6 +436,7 @@ impl HubApp {
                         if let Some(t) = &mut tab.terminal {
                             t.feed_text("\r\n[process exited]\r\n");
                         }
+                        tab.pty = None; // 释放 PTY 句柄，避免每帧重复打印 [process exited]
                     }
                 }
             }
@@ -676,7 +677,7 @@ impl HubApp {
 
                     let border_color = if dark { Color32::from_gray(80) } else { Color32::from_gray(200) };
                     
-                    let mut draw_color_picker = |ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]| -> bool {
+                    let draw_color_picker = |ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]| -> bool {
                         ui.label(label);
                         let mut res = false;
                         egui::Frame::NONE
