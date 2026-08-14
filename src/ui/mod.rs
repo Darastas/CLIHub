@@ -19,6 +19,7 @@ pub fn status_color(s: SessionStatus) -> Color32 {
 }
 
 /// 会话状态对应的指示圆点。
+#[allow(dead_code)]
 pub fn status_dot(s: SessionStatus) -> &'static str {
     match s {
         SessionStatus::Running => "●",

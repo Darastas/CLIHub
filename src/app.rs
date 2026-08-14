@@ -597,6 +597,10 @@ impl HubApp {
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
                     let visuals = &mut ui.style_mut().visuals;
+                    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
                     visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
                     visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
                     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
@@ -760,6 +764,10 @@ impl HubApp {
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
                     let visuals = &mut ui.style_mut().visuals;
+                    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
                     visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
                     visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
                     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
@@ -783,45 +791,46 @@ impl HubApp {
                                 cancel = true;
                             }
                         });
-                        });
-                        ui.add_space(16.0);
-
-                        ui.label(RichText::new("Name").size(12.0));
-                        ui.text_edit_singleline(&mut self.new_name);
-                        ui.add_space(8.0);
-
-                        ui.label(RichText::new("Command").size(12.0));
-                        ui.text_edit_singleline(&mut self.new_command);
-                        ui.add_space(8.0);
-
-                        ui.label(RichText::new("Working directory (optional)").size(12.0));
-                        ui.horizontal(|ui: &mut egui::Ui| {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                                if ui.button("Browse...").clicked() {
-                                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                        self.new_cwd = path.display().to_string();
-                                    }
-                                }
-                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui: &mut egui::Ui| {
-                                    ui.add_sized(ui.available_size(), egui::TextEdit::singleline(&mut self.new_cwd));
-                                });
-                            });
-                        });
-                        ui.add_space(16.0);
-
-                        let name_ok = !self.new_name.trim().is_empty();
-                        let cmd_ok = !self.new_command.trim().is_empty();
-                        
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                            let add_btn = egui::Button::new(RichText::new("Add Session").color(Color32::WHITE)).fill(Color32::from_rgb(59, 130, 246));
-                            if ui.add_enabled(name_ok && cmd_ok, add_btn).clicked() {
-                                confirm = true;
-                            }
-                            if ui.button("Cancel").clicked() {
-                                cancel = true;
-                            }
-                        });
                     });
+                    ui.add_space(16.0);
+
+                    ui.label(RichText::new("Name").size(12.0));
+                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.new_name).margin(egui::vec2(8.0, 5.0)));
+                    ui.add_space(8.0);
+
+                    ui.label(RichText::new("Command").size(12.0));
+                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.new_command).margin(egui::vec2(8.0, 5.0)));
+                    ui.add_space(8.0);
+
+                    ui.label(RichText::new("Working directory (optional)").size(12.0));
+                    ui.horizontal(|ui: &mut egui::Ui| {
+                        let browse_w = 75.0;
+                        let text_w = (ui.available_width() - browse_w - ui.spacing().item_spacing.x).max(100.0);
+                        ui.add_sized(egui::vec2(text_w, 28.0), egui::TextEdit::singleline(&mut self.new_cwd).margin(egui::vec2(8.0, 5.0)));
+                        if ui.add_sized(egui::vec2(browse_w, 28.0), egui::Button::new("Browse...")).clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                self.new_cwd = path.display().to_string();
+                            }
+                        }
+                    });
+                    ui.add_space(16.0);
+
+                    let name_ok = !self.new_name.trim().is_empty();
+                    let cmd_ok = !self.new_command.trim().is_empty();
+                    
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
+                        let add_btn = egui::Button::new(RichText::new("Add Session").color(Color32::WHITE).strong())
+                            .fill(Color32::from_rgb(0, 111, 238))
+                            .min_size(egui::vec2(95.0, 28.0));
+                        if ui.add_enabled(name_ok && cmd_ok, add_btn).clicked() {
+                            confirm = true;
+                        }
+                        ui.add_space(4.0);
+                        if ui.add_sized(egui::vec2(75.0, 28.0), egui::Button::new("Cancel")).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
             });
 
         if confirm {
@@ -857,6 +866,10 @@ impl HubApp {
                 
                 frame.show(ui, |ui: &mut egui::Ui| {
                     let visuals = &mut ui.style_mut().visuals;
+                    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+                    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
                     visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
                     visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
                     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
@@ -884,25 +897,23 @@ impl HubApp {
                     ui.add_space(16.0);
 
                     ui.label(RichText::new("Name").size(12.0));
-                    ui.text_edit_singleline(&mut self.edit_name);
+                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.edit_name).margin(egui::vec2(8.0, 5.0)));
                     ui.add_space(8.0);
 
                     ui.label(RichText::new("Command").size(12.0));
-                    ui.text_edit_singleline(&mut self.edit_command);
+                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.edit_command).margin(egui::vec2(8.0, 5.0)));
                     ui.add_space(8.0);
 
                     ui.label(RichText::new("Working directory (optional)").size(12.0));
                     ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                            if ui.button("Browse...").clicked() {
-                                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                    self.edit_cwd = path.display().to_string();
-                                }
+                        let browse_w = 75.0;
+                        let text_w = (ui.available_width() - browse_w - ui.spacing().item_spacing.x).max(100.0);
+                        ui.add_sized(egui::vec2(text_w, 28.0), egui::TextEdit::singleline(&mut self.edit_cwd).margin(egui::vec2(8.0, 5.0)));
+                        if ui.add_sized(egui::vec2(browse_w, 28.0), egui::Button::new("Browse...")).clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                self.edit_cwd = path.display().to_string();
                             }
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui: &mut egui::Ui| {
-                                ui.add_sized(ui.available_size(), egui::TextEdit::singleline(&mut self.edit_cwd));
-                            });
-                        });
+                        }
                     });
                     ui.add_space(16.0);
 
@@ -910,11 +921,14 @@ impl HubApp {
                     let cmd_ok = !self.edit_command.trim().is_empty();
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                        let save_btn = egui::Button::new(RichText::new("Save").color(Color32::WHITE)).fill(Color32::from_rgb(59, 130, 246));
+                        let save_btn = egui::Button::new(RichText::new("Save").color(Color32::WHITE).strong())
+                            .fill(Color32::from_rgb(0, 111, 238))
+                            .min_size(egui::vec2(85.0, 28.0));
                         if ui.add_enabled(name_ok && cmd_ok, save_btn).clicked() {
                             confirm = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        ui.add_space(4.0);
+                        if ui.add_sized(egui::vec2(75.0, 28.0), egui::Button::new("Cancel")).clicked() {
                             cancel = true;
                         }
                     });

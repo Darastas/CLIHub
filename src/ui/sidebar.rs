@@ -85,8 +85,6 @@ pub struct SidebarAction {
     pub move_to: Option<(usize, usize)>,
 }
 
-const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
-
 fn muted(dark: bool) -> Color32 {
     if dark {
         Color32::from_rgb(166, 173, 200) // Subtext0 in Catppuccin
@@ -144,12 +142,40 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
         ui.label(RichText::new("SESSIONS").size(12.0).color(muted(dark)).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.0); // 从右侧往左加 12px 的边距，与卡片的右边缘对齐 (224.0 - 12.0 = 212.0)
-            let add = egui::Button::new(RichText::new("＋").size(16.0).color(ACCENT)).frame(false);
-            if ui
-                .add(add)
-                .on_hover_text("Add a new CLI session")
-                .clicked()
-            {
+            let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+            let is_plus_hovered = plus_resp.hovered();
+            let plus_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_add_hover"), is_plus_hovered);
+            
+            let plus_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+            let plus_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+            let plus_bg = Color32::from_rgba_premultiplied(
+                (plus_base.r() as f32 * (1.0 - plus_hover_factor) + plus_hover.r() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                (plus_base.g() as f32 * (1.0 - plus_hover_factor) + plus_hover.g() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                (plus_base.b() as f32 * (1.0 - plus_hover_factor) + plus_hover.b() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                (plus_base.a() as f32 * (1.0 - plus_hover_factor) + plus_hover.a() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+            );
+            let plus_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+            
+            let p = ui.painter();
+            let plus_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+            p.rect_filled(plus_rect.translate(vec2(0.0, 1.5)), 6.0, plus_shadow);
+            p.rect_filled(plus_rect, 6.0, plus_bg);
+            p.rect_stroke(plus_rect, 6.0, egui::Stroke::new(0.5, plus_stroke), egui::StrokeKind::Inside);
+            
+            let plus_fg = if is_plus_hovered {
+                if dark { Color32::WHITE } else { Color32::BLACK }
+            } else {
+                if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
+            };
+            p.text(
+                plus_rect.center(),
+                Align2::CENTER_CENTER,
+                "＋",
+                FontId::new(12.0, egui::FontFamily::Proportional),
+                plus_fg,
+            );
+
+            if plus_resp.on_hover_text("Add a new CLI session").clicked() {
                 action.add = true;
             }
         });
