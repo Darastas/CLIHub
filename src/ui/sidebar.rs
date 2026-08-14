@@ -111,6 +111,10 @@ fn name_secondary(dark: bool) -> Color32 {
     }
 }
 
+const ROW_HEIGHT: f32 = 56.0;
+const ROW_SPACING: f32 = 4.0;
+const SLOT_STRIDE: f32 = ROW_HEIGHT + ROW_SPACING;
+
 pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::config::ThemeSettings) -> SidebarAction {
     let mut action = SidebarAction::default();
 
@@ -130,6 +134,7 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
             mem.data.remove::<usize>(Id::new("dragged_idx"));
             mem.data.remove::<usize>(Id::new("target_idx"));
         });
+        ui.ctx().request_repaint();
     }
 
     // ---- SESSIONS 分区标题 + 新增按钮 ----
@@ -158,18 +163,33 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
                 .color(muted(dark)),
         );
     }
-    ui.add_space(16.0); // Added generous spacing before cards
+    ui.add_space(16.0); // Spacing before cards
 
     // ---- 会话卡片（点击选中，拖动排序）----
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = ROW_SPACING;
+            let list_top = ui.cursor().min.y;
+
+            // 若正在拖拽，实时根据鼠标坐标精确计算目标槽位索引
+            let dragged_idx = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("dragged_idx")));
+            let target_idx = if let (Some(_), Some(pos)) = (dragged_idx, ui.ctx().pointer_interact_pos()) {
+                ui.ctx().request_repaint(); // 拖动期间维持高帧率平滑过渡
+                let rel_y = pos.y - list_top;
+                let raw_target = (rel_y / SLOT_STRIDE).round() as isize;
+                let clamped = raw_target.clamp(0, (sessions.len().saturating_sub(1)) as isize) as usize;
+                ui.memory_mut(|mem| mem.data.insert_temp(Id::new("target_idx"), clamped));
+                Some(clamped)
+            } else {
+                ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("target_idx")))
+            };
+
             for (idx, s) in sessions.iter().enumerate() {
                 let is_sel = idx == selected;
                 ui.push_id(s.id, |ui| {
-                    draw_card(ui, s, idx, is_sel, &mut action, theme);
+                    draw_card(ui, s, idx, is_sel, &mut action, theme, dragged_idx, target_idx);
                 });
-                ui.add_space(2.0);
             }
         });
 
@@ -187,7 +207,7 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
     action
 }
 
-/// 绘制一张会话卡片。单击选中，按住拖动时设置排序载荷。
+/// 绘制一张会话卡片。单击选中，按住拖动时平滑位移排序。
 fn draw_card(
     ui: &mut Ui,
     s: &Session,
@@ -195,67 +215,56 @@ fn draw_card(
     is_sel: bool,
     action: &mut SidebarAction,
     theme: &crate::config::ThemeSettings,
+    dragged_idx: Option<usize>,
+    target_idx: Option<usize>,
 ) {
     let dark = ui.visuals().dark_mode;
-    let row_height = 56.0;
     
+    let is_this_dragged = dragged_idx == Some(idx);
+    let is_any_dragged = dragged_idx.is_some();
+
     // Allocate full width for interaction
     let (row_rect, resp) = ui.allocate_exact_size(
-        vec2(ui.available_width(), row_height),
+        vec2(ui.available_width(), ROW_HEIGHT),
         Sense::click_and_drag(),
     );
     let dragged = resp.dragged();
     let hovered = resp.hovered();
 
-    // The visual background rect is slightly inset for a beautiful rounded floating look
     let margin_x = 12.0;
     let margin_y = 4.0;
     
-    if dragged {
+    if dragged && (dragged_idx.is_none() || dragged_idx == Some(idx)) {
         ui.memory_mut(|mem| mem.data.insert_temp(Id::new("dragged_idx"), idx));
     }
-    
-    let is_dragging = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("dragged_idx")).is_some());
-    if is_dragging || dragged {
-        if let Some(pos) = ui.ctx().pointer_interact_pos() {
-            if row_rect.contains(pos) {
-                ui.memory_mut(|mem| mem.data.insert_temp(Id::new("target_idx"), idx));
+
+    // 计算当前卡片的目标槽位偏移量
+    let mut offset_slots = 0.0;
+    if let (Some(d_idx), Some(t_idx)) = (dragged_idx, target_idx) {
+        if idx == d_idx {
+            // 被拖动的卡片在列表中作为占位框平移到目标位置
+            offset_slots = t_idx as f32 - d_idx as f32;
+        } else if d_idx < t_idx {
+            // 向下拖动：原处于 (d_idx, t_idx] 区间的卡片向上移 1 格让位
+            if idx > d_idx && idx <= t_idx {
+                offset_slots = -1.0;
+            }
+        } else if d_idx > t_idx {
+            // 向上拖动：原处于 [t_idx, d_idx) 区间的卡片向下移 1 格让位
+            if idx >= t_idx && idx < d_idx {
+                offset_slots = 1.0;
             }
         }
     }
 
-    let mut visual_rect = row_rect;
-    if is_dragging || dragged {
-        if let Some(dragged_id) = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("dragged_idx"))) {
-            let target_id = ui.memory(|mem| mem.data.get_temp::<usize>(Id::new("target_idx"))).unwrap_or(dragged_id);
-            
-            let mut target_visual_idx = idx;
-            if idx == dragged_id {
-                target_visual_idx = target_id;
-            } else if dragged_id < target_id {
-                if idx > dragged_id && idx <= target_id {
-                    target_visual_idx = idx.saturating_sub(1);
-                }
-            } else if dragged_id > target_id {
-                if idx >= target_id && idx < dragged_id {
-                    target_visual_idx = idx + 1;
-                }
-            }
-            
-            let offset_slots = target_visual_idx as f32 - idx as f32;
-            let spacing = ui.spacing().item_spacing.y;
-            visual_rect = visual_rect.translate(vec2(0.0, offset_slots * (row_height + 2.0 + spacing)));
-        }
-    }
-
-    let anim_y = ui.ctx().animate_value_with_time(Id::new(("anim_y", s.id)), visual_rect.min.y, 0.15);
-    visual_rect = Rect::from_min_size(Pos2::new(visual_rect.min.x, anim_y), visual_rect.size());
-
+    let target_y = row_rect.min.y + offset_slots * SLOT_STRIDE;
+    let anim_y = ui.ctx().animate_value_with_time(Id::new(("anim_y", s.id)), target_y, 0.12);
+    let visual_rect = Rect::from_min_size(Pos2::new(row_rect.min.x, anim_y), row_rect.size());
     let bg_rect = visual_rect.shrink2(vec2(margin_x, margin_y));
 
     // Smooth animations for hover and selection
     let sel_factor = ui.ctx().animate_bool(Id::new(("sel", s.id)), is_sel);
-    let hover_factor = ui.ctx().animate_bool(Id::new(("hover", s.id)), hovered && !is_sel);
+    let hover_factor = ui.ctx().animate_bool(Id::new(("hover", s.id)), hovered && !is_sel && !is_any_dragged);
 
     fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
         Color32::from_rgba_premultiplied(
@@ -276,16 +285,11 @@ fn draw_card(
         Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 24)
     };
     
-    // Interpolate background color
     let bg = lerp_color(lerp_color(base_color, hover_color, hover_factor), sel_color, sel_factor);
-
-    // If dragging, we make the original card slightly faint
-    let opacity = if dragged { 0.3 } else { 1.0 };
 
     // Interpolate text colors
     let name_normal = name_secondary(dark);
     let name_hover = text(dark);
-    // Selected text becomes perfectly crisp against the subtle background
     let name_sel = if dark { Color32::WHITE } else { Color32::BLACK };
     let fg_name = lerp_color(lerp_color(name_normal, name_hover, hover_factor), name_sel, sel_factor);
 
@@ -294,29 +298,31 @@ fn draw_card(
     let fg_cwd = lerp_color(cwd_normal, cwd_sel, sel_factor);
 
     let dot_normal = status_color(s.status());
-    let dot_sel = Color32::WHITE; // Pure white when selected on the blue background
+    let dot_sel = Color32::WHITE;
     let fg_dot = lerp_color(dot_normal, dot_sel, sel_factor);
     
-    let render_card = |painter: &egui::Painter, rect: Rect, alpha: f32, stroke: bool, is_hovered_for_delete: bool| {
-        let mut bg = bg;
-        bg[3] = (bg[3] as f32 * alpha) as u8;
-        if bg != Color32::TRANSPARENT {
-            painter.rect_filled(rect, 12.0, bg);
-        }
-        
-        // Drag outline
-        if stroke {
+    let render_card_content = |painter: &egui::Painter, rect: Rect, alpha: f32, is_placeholder: bool| {
+        let mut card_bg = bg;
+        card_bg[3] = (card_bg[3] as f32 * alpha) as u8;
+
+        if is_placeholder {
+            // 列表中的占位插槽：强调色虚线框 + 极微弱半透明底色
+            let stroke_color = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.45);
             painter.rect_stroke(
                 rect,
                 12.0,
-                Stroke::new(2.0, Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.5)),
+                Stroke::new(1.5, stroke_color),
                 egui::StrokeKind::Inside,
             );
+            let placeholder_bg = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(6) };
+            painter.rect_filled(rect, 12.0, placeholder_bg);
+        } else if card_bg != Color32::TRANSPARENT {
+            painter.rect_filled(rect, 12.0, card_bg);
         }
         
-        let mut fg_dot = fg_dot; fg_dot[3] = (fg_dot[3] as f32 * alpha) as u8;
-        let mut fg_name = fg_name; fg_name[3] = (fg_name[3] as f32 * alpha) as u8;
-        let mut fg_cwd = fg_cwd; fg_cwd[3] = (fg_cwd[3] as f32 * alpha) as u8;
+        let mut dot_c = fg_dot; dot_c[3] = (dot_c[3] as f32 * alpha) as u8;
+        let mut name_c = fg_name; name_c[3] = (name_c[3] as f32 * alpha) as u8;
+        let mut cwd_c = fg_cwd; cwd_c[3] = (cwd_c[3] as f32 * alpha) as u8;
         
         let text_start_x = rect.min.x + 12.0;
         painter.text(
@@ -324,7 +330,7 @@ fn draw_card(
             Align2::LEFT_TOP,
             &s.name,
             FontId::new(14.0, egui::FontFamily::Monospace),
-            fg_name,
+            name_c,
         );
         let short_cwd = shorten_path(&s.cwd, 22);
         painter.text(
@@ -332,52 +338,51 @@ fn draw_card(
             Align2::LEFT_TOP,
             short_cwd,
             FontId::new(11.5, egui::FontFamily::Monospace),
-            fg_cwd,
+            cwd_c,
         );
         
-        // Draw elegant vector status indicator on the right side if delete button is not shown
-        if !is_hovered_for_delete {
-            let dot_center = Pos2::new(rect.right() - 20.0, rect.center().y);
-            match s.status() {
-                crate::state::SessionStatus::Running => { painter.circle_filled(dot_center, 4.0, fg_dot); },
-                crate::state::SessionStatus::Idle => { painter.circle_stroke(dot_center, 3.5, Stroke::new(1.5, fg_dot)); },
-                crate::state::SessionStatus::Failed => {
-                    let d = 3.0;
-                    painter.line_segment([dot_center - vec2(d, d), dot_center + vec2(d, d)], Stroke::new(1.5, fg_dot));
-                    painter.line_segment([dot_center - vec2(d, -d), dot_center + vec2(d, -d)], Stroke::new(1.5, fg_dot));
-                },
-                crate::state::SessionStatus::Exited => { painter.circle_stroke(dot_center, 3.5, Stroke::new(1.0, fg_dot)); },
-            }
+        // 状态圆点
+        let dot_center = Pos2::new(rect.right() - 20.0, rect.center().y);
+        match s.status() {
+            crate::state::SessionStatus::Running => { painter.circle_filled(dot_center, 4.0, dot_c); },
+            crate::state::SessionStatus::Idle => { painter.circle_stroke(dot_center, 3.5, Stroke::new(1.5, dot_c)); },
+            crate::state::SessionStatus::Failed => {
+                let d = 3.0;
+                painter.line_segment([dot_center - vec2(d, d), dot_center + vec2(d, d)], Stroke::new(1.5, dot_c));
+                painter.line_segment([dot_center - vec2(d, -d), dot_center + vec2(d, -d)], Stroke::new(1.5, dot_c));
+            },
+            crate::state::SessionStatus::Exited => { painter.circle_stroke(dot_center, 3.5, Stroke::new(1.0, dot_c)); },
         }
     };
 
-    let delete_hovered = hovered && !dragged;
-    if bg != Color32::TRANSPARENT && !dragged {
-        let shadow_color = if dark { Color32::from_black_alpha(120) } else { Color32::from_black_alpha(30) };
-        ui.put(bg_rect, |ui: &mut Ui| {
-            egui::Frame::NONE
-                .corner_radius(12)
-                .shadow(egui::epaint::Shadow { offset: [0, 4].into(), blur: 12, spread: 0, color: shadow_color })
-                .show(ui, |ui| {
-                    ui.allocate_exact_size(bg_rect.size(), Sense::hover());
-                }).response
-        });
+    // 绘制列表中的卡片或占位插槽
+    if is_this_dragged {
+        // 当前卡片正在被拖动：原列表处画占位插槽
+        render_card_content(ui.painter(), bg_rect, 0.4, true);
+    } else {
+        if bg != Color32::TRANSPARENT {
+            let shadow_color = if dark { Color32::from_black_alpha(100) } else { Color32::from_black_alpha(20) };
+            ui.painter().rect_filled(bg_rect.translate(vec2(0.0, 2.0)), 12.0, shadow_color);
+        }
+        render_card_content(ui.painter(), bg_rect, 1.0, false);
     }
-    
-    render_card(ui.painter(), bg_rect, opacity, false, delete_hovered);
 
-    if dragged {
-        // Draw the payload following the pointer
+    // 若当前卡片被拖动，在顶层 Tooltip 图层绘制跟随鼠标的悬浮卡片
+    if is_this_dragged {
         if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
-            // drag_rect uses the original non-animated bg_rect size, centered at pointer
             let drag_rect = Rect::from_center_size(pointer_pos, bg_rect.size());
             let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, resp.id));
             
-            // Opaque background for readability
-            let opaque_bg = if dark { Color32::from_rgb(45, 45, 45) } else { Color32::from_rgb(240, 240, 240) };
+            let opaque_bg = if dark { Color32::from_rgb(36, 39, 48) } else { Color32::from_rgb(255, 255, 255) };
             painter.rect_filled(drag_rect, 12.0, opaque_bg);
+            painter.rect_stroke(
+                drag_rect,
+                12.0,
+                Stroke::new(1.5, Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2])),
+                egui::StrokeKind::Inside,
+            );
             
-            render_card(&painter, drag_rect, 1.0, true, false);
+            render_card_content(&painter, drag_rect, 1.0, false);
         }
     }
 
@@ -398,7 +403,7 @@ fn draw_card(
         }
     });
 
-    if resp.clicked() && action.remove.is_none() {
+    if resp.clicked() && action.remove.is_none() && !is_any_dragged {
         action.select = Some(idx);
     }
 }
