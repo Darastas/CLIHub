@@ -3,11 +3,75 @@
 //! 卡片用 `Sense::click_and_drag()`：单击 = 选中，按住拖动 = 排序
 //! （`dnd_set_drag_payload` 设置载荷，由 `dnd_drop_zone` 接收）。
 
+use std::path::Path;
+
 use egui::{Align2, Color32, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
 
 use crate::state::Session;
 
-use super::{status_color, status_dot};
+use super::status_color;
+
+/// 将较长的工作目录路径智能缩短，避免超出边栏卡片
+pub fn shorten_path(path: &Path, max_len: usize) -> String {
+    let raw = path.to_string_lossy();
+    if raw.is_empty() {
+        return String::new();
+    }
+
+    // 尝试将用户家目录替换为 ~
+    let home_replaced = if let Some(base_dirs) = directories::BaseDirs::new() {
+        let home = base_dirs.home_dir();
+        if let Ok(rel) = path.strip_prefix(home) {
+            if rel.as_os_str().is_empty() {
+                "~".to_string()
+            } else {
+                format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display())
+            }
+        } else {
+            raw.to_string()
+        }
+    } else {
+        raw.to_string()
+    };
+
+    if home_replaced.chars().count() <= max_len {
+        return home_replaced;
+    }
+
+    // 分割路径各级目录（兼容 Windows '\' 与 Unix '/'）
+    let sep = std::path::MAIN_SEPARATOR.to_string();
+    let parts: Vec<&str> = home_replaced.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+    if parts.len() >= 2 {
+        let prefix = parts[0];
+        let last = parts[parts.len() - 1];
+        let candidate = if home_replaced.starts_with('/') {
+            format!("/{prefix}{sep}...{sep}{last}")
+        } else if prefix.ends_with(':') {
+            format!("{prefix}{sep}...{sep}{last}")
+        } else {
+            format!("{prefix}{sep}...{sep}{last}")
+        };
+
+        if candidate.chars().count() <= max_len {
+            return candidate;
+        }
+
+        let last_only = format!("...{sep}{last}");
+        if last_only.chars().count() <= max_len {
+            return last_only;
+        }
+    }
+
+    // 最后一级目录本身过长时，进行截断并加前缀省略号
+    let chars: Vec<char> = home_replaced.chars().collect();
+    if chars.len() > max_len {
+        let keep = max_len.saturating_sub(3);
+        let tail: String = chars[chars.len().saturating_sub(keep)..].iter().collect();
+        format!("...{tail}")
+    } else {
+        home_replaced
+    }
+}
 
 /// 边栏交互结果，由 App 层执行。
 #[derive(Debug, Clone, Copy, Default)]
@@ -262,10 +326,11 @@ fn draw_card(
             FontId::new(14.0, egui::FontFamily::Monospace),
             fg_name,
         );
+        let short_cwd = shorten_path(&s.cwd, 22);
         painter.text(
             Pos2::new(text_start_x, rect.min.y + 27.0),
             Align2::LEFT_TOP,
-            s.cwd.display().to_string(),
+            short_cwd,
             FontId::new(11.5, egui::FontFamily::Monospace),
             fg_cwd,
         );
@@ -315,6 +380,12 @@ fn draw_card(
             render_card(&painter, drag_rect, 1.0, true, false);
         }
     }
+
+    let resp = resp.on_hover_ui(|ui| {
+        ui.label(RichText::new(&s.name).strong());
+        ui.label(RichText::new(format!("Command: {}", s.command)).size(11.5));
+        ui.label(RichText::new(format!("Path: {}", s.cwd.display())).size(11.5));
+    });
 
     resp.context_menu(|ui| {
         if ui.button("Edit").clicked() {
