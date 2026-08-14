@@ -9,7 +9,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
-use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, RichText, Sense, Ui, vec2};
+use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, Sense, Ui, vec2};
 
 use crate::state::{Session, TerminalInstance};
 
@@ -257,9 +257,9 @@ pub fn show(
 ) -> Option<TerminalAction> {
     let mut action = None;
 
-    // ---- 标签栏（Tab Bar，类似 Chrome/VS Code）----
-    let tab_h = 32.0;
-    ui.add_space(10.0);
+    // ---- 标签栏（Tab Bar，与 Session 卡片美学统一）----
+    let tab_h = 30.0;
+    ui.add_space(8.0);
     egui::ScrollArea::horizontal()
         .max_height(tab_h + 6.0)
         .auto_shrink([false, true])
@@ -271,15 +271,42 @@ pub fn show(
                     if let Some(a) = draw_tab(ui, session, ti, is_active, theme) {
                         action = Some(a);
                     }
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
                 }
-                // 新增实例
-                let plus = egui::Button::new(RichText::new("＋").size(15.0)).frame(false);
-                if ui
-                    .add(plus)
-                    .on_hover_text("Start a new instance")
-                    .clicked()
-                {
+
+                // 新增实例按钮（与卡片同高的精致小卡片按钮）
+                let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+                let is_plus_hovered = plus_resp.hovered();
+                let plus_hover_factor = ui.ctx().animate_bool(Id::new(("plus_tab_hover", session.id)), is_plus_hovered);
+                
+                let plus_base = if theme.is_dark() { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+                let plus_hover = if theme.is_dark() { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(16) };
+                let plus_bg = Color32::from_rgba_premultiplied(
+                    (plus_base.r() as f32 * (1.0 - plus_hover_factor) + plus_hover.r() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                    (plus_base.g() as f32 * (1.0 - plus_hover_factor) + plus_hover.g() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                    (plus_base.b() as f32 * (1.0 - plus_hover_factor) + plus_hover.b() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                    (plus_base.a() as f32 * (1.0 - plus_hover_factor) + plus_hover.a() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+                );
+                let plus_stroke = if theme.is_dark() { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+                
+                let p = ui.painter();
+                p.rect_filled(plus_rect, 8.0, plus_bg);
+                p.rect_stroke(plus_rect, 8.0, egui::Stroke::new(1.0, plus_stroke), egui::StrokeKind::Inside);
+                
+                let plus_fg = if is_plus_hovered {
+                    if theme.is_dark() { Color32::WHITE } else { Color32::BLACK }
+                } else {
+                    if theme.is_dark() { Color32::from_gray(160) } else { Color32::from_gray(100) }
+                };
+                p.text(
+                    plus_rect.center(),
+                    Align2::CENTER_CENTER,
+                    "＋",
+                    FontId::new(13.5, egui::FontFamily::Proportional),
+                    plus_fg,
+                );
+
+                if plus_resp.on_hover_text("Start a new instance").clicked() {
                     action = Some(TerminalAction::NewTab);
                 }
             });
@@ -1060,7 +1087,7 @@ fn handle_scroll(ui: &mut Ui, tab: &mut TerminalInstance, hovered: bool, rect: R
     }
 }
 
-/// 绘制一个标签页，返回点击/关闭对应的动作。
+/// 绘制一个标签页卡片，返回点击/关闭对应的动作（与 Session 卡片美学统一）。
 fn draw_tab(
     ui: &mut Ui,
     session: &Session,
@@ -1069,71 +1096,102 @@ fn draw_tab(
     theme: &TermTheme,
 ) -> Option<TerminalAction> {
     let label = format!("{} {}", session.name, ti + 1);
-    let font_id = FontId::proportional(12.5);
+    let font_id = FontId::new(12.5, egui::FontFamily::Monospace);
     let text_w = ui.painter().layout_no_wrap(label.clone(), font_id.clone(), Color32::WHITE).rect.width();
-    let tab_w = text_w + 40.0;
-    let tab_h = 32.0;
+    let tab_w = text_w + 50.0;
+    let tab_h = 28.0;
     let (tab_rect, resp) = ui.allocate_exact_size(vec2(tab_w, tab_h), Sense::click());
 
-    // HeroUI style Pill tabs
-    let bg = if is_active {
-        theme.background
-    } else if resp.hovered() {
-        if theme.is_dark() {
-            Color32::from_gray(39) // Zinc-800
-        } else {
-            Color32::from_rgb(228, 228, 231) // Zinc-200
-        }
-    } else {
-        Color32::TRANSPARENT
-    };
-    if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(tab_rect, 16.0, bg); // Pill shape
+    let dark = theme.is_dark();
+    let sel_factor = ui.ctx().animate_bool(Id::new(("tab_sel", session.id, ti)), is_active);
+    let hover_factor = ui.ctx().animate_bool(Id::new(("tab_hover", session.id, ti)), resp.hovered() && !is_active);
+
+    fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+        Color32::from_rgba_premultiplied(
+            (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.a() as f32 * (1.0 - t) + b.a() as f32 * t).clamp(0.0, 255.0) as u8,
+        )
     }
 
-    let label_color = if is_active {
-        theme.foreground
-    } else if theme.is_dark() {
-        Color32::from_gray(180)
+    // 与 session 侧边栏卡片统一的底色
+    let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let hover_color = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+    let sel_color = if dark {
+        Color32::from_rgba_unmultiplied(0, 111, 238, 40)
     } else {
-        Color32::from_gray(90)
+        Color32::from_rgba_unmultiplied(0, 111, 238, 24)
     };
-    ui.painter().text(
-        Pos2::new(tab_rect.min.x + 12.0, tab_rect.center().y),
+    let bg = lerp_color(lerp_color(base_color, hover_color, hover_factor), sel_color, sel_factor);
+
+    // 边框描边
+    let base_stroke = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(15) };
+    let hover_stroke = if dark { Color32::from_white_alpha(25) } else { Color32::from_black_alpha(30) };
+    let sel_stroke = Color32::from_rgb(0, 111, 238).gamma_multiply(if dark { 0.55 } else { 0.45 });
+    let stroke_c = lerp_color(lerp_color(base_stroke, hover_stroke, hover_factor), sel_stroke, sel_factor);
+
+    // 绘制卡片圆角矩形（8.0px 圆角，与 session 卡片完全统一）
+    let painter = ui.painter();
+    painter.rect_filled(tab_rect, 8.0, bg);
+    painter.rect_stroke(tab_rect, 8.0, egui::Stroke::new(1.0, stroke_c), egui::StrokeKind::Inside);
+
+    // 状态指示点
+    let is_running = session.tabs.get(ti).map_or(false, |t| t.is_running());
+    let dot_c = if is_running {
+        Color32::from_rgb(46, 204, 113) // 运行中 - 绿
+    } else {
+        if dark { Color32::from_gray(100) } else { Color32::from_gray(140) }
+    };
+    let dot_center = Pos2::new(tab_rect.min.x + 12.0, tab_rect.center().y);
+    if is_running {
+        painter.circle_filled(dot_center, 3.5, dot_c);
+    } else {
+        painter.circle_stroke(dot_center, 3.0, egui::Stroke::new(1.2, dot_c));
+    }
+
+    // 标题文本
+    let name_normal = if dark { Color32::from_gray(160) } else { Color32::from_gray(100) };
+    let name_hover = if dark { Color32::from_gray(230) } else { Color32::from_gray(30) };
+    let name_sel = if dark { Color32::WHITE } else { Color32::BLACK };
+    let fg_name = lerp_color(lerp_color(name_normal, name_hover, hover_factor), name_sel, sel_factor);
+
+    painter.text(
+        Pos2::new(tab_rect.min.x + 22.0, tab_rect.center().y),
         Align2::LEFT_CENTER,
         &label,
         font_id,
-        label_color,
+        fg_name,
     );
 
     // 关闭按钮
     let close_rect = Rect::from_center_size(
-        Pos2::new(tab_rect.right() - 16.0, tab_rect.center().y),
+        Pos2::new(tab_rect.right() - 14.0, tab_rect.center().y),
         vec2(16.0, 16.0),
     );
-    let close_resp = ui.interact(close_rect, Id::new(("tab-close", ti)), Sense::click());
+    let close_resp = ui.interact(close_rect, Id::new(("tab-close", session.id, ti)), Sense::click());
     
     if close_resp.hovered() {
-        ui.painter().rect_filled(close_rect, 4.0, Color32::from_rgb(220, 60, 50));
+        painter.rect_filled(close_rect, 4.0, Color32::from_rgb(220, 60, 50).gamma_multiply(0.85));
     }
     
     let close_color = if close_resp.hovered() {
         Color32::WHITE
-    } else if theme.is_dark() {
+    } else if dark {
         Color32::from_gray(140)
     } else {
         Color32::from_gray(120)
     };
     
     let center = close_rect.center();
-    let d = 3.5;
-    ui.painter().line_segment(
+    let d = 3.0;
+    painter.line_segment(
         [center + vec2(-d, -d), center + vec2(d, d)],
-        egui::Stroke::new(1.5, close_color),
+        egui::Stroke::new(1.3, close_color),
     );
-    ui.painter().line_segment(
+    painter.line_segment(
         [center + vec2(-d, d), center + vec2(d, -d)],
-        egui::Stroke::new(1.5, close_color),
+        egui::Stroke::new(1.3, close_color),
     );
     
     if close_resp.clicked() {
