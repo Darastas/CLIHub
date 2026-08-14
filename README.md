@@ -81,30 +81,18 @@ cargo run              # Development mode
 cargo build --release  # Release build
 ```
 
-### Releases & Changelog (v0.1.2)
+### Releases & Changelog
 
-- **Native Win32 Direct Clipboard & Full Selection Copying**:
-  - Integrated native Win32 clipboard API (UTF-16) for rock-solid, zero-latency clipboard transfers without loss across applications.
-  - QuickEdit mode: Selection is automatically copied to system clipboard upon mouse release, supporting single-line, multi-line, reverse, and CJK wide-character extraction.
-  - Comprehensive Shortcuts: `Ctrl+Shift+C` / `Cmd+Shift+C` / `Ctrl+Insert` for copy, `Ctrl+Shift+V` / `Cmd+Shift+V` / `Shift+Insert` for paste.
-  - Right-Click Quick Actions: Right-click with selection copies and deselects; right-click without selection pastes from clipboard.
-- **Background Window Focus Guard & Signal Isolation**:
-  - Strictly enforces OS window focus guards; never intercepts or forwards keys (such as `Ctrl+C` in other applications) when running in the background.
-  - Restores regular `Ctrl+C` strictly for terminal `SIGINT` interruption and app termination.
-- **Process Exit Infinite Loop Fix**:
-  - Fixed infinite recursion / frame spam of `[process exited]` caused by repeated `pty.child.try_wait()` invocations.
-- **Multi-Architecture Release**: Precompiled binaries for Windows x64 (x86_64), x86 (32-bit), and ARM64.
+#### v0.1.2
+- **Native Clipboard & Selection Copying**: Win32 direct clipboard API integration, QuickEdit auto-copy on mouse release, right-click actions, and standard terminal shortcuts.
+- **Background Focus Protection**: Strictly ignores external shortcuts when the app is in the background to prevent accidental process termination.
+- **Process Exit Loop Fix**: Fixed infinite frame spam of `[process exited]` on child termination.
+- **Multi-Architecture Binaries**: Native precompiled releases for Windows x64, x86 (32-bit), and ARM64.
 
----
-
-### Releases & Changelog (v0.1.1)
-
-- **Smart Path Truncation**: Automatically compresses home paths into `~` and formats long project directories with clean middle ellipses (`C:\...\project`), with instant full path tooltips on hover.
-- **Rebuilt Drag-and-Drop Reordering**:
-  - Fixed upward drag displacement, threshold calculation, and event hijacking.
-  - Eliminated layout cursor mutations (`ui.put`), resolving abnormal vertical gaps and displaced slots.
-  - Fixed invalid interaction sense errors (red outline warnings on dragged items).
-- **Multi-Architecture Release**: Precompiled binaries for Windows x64, x86 (32-bit), and ARM64.
+#### v0.1.1
+- **Smart Path Truncation**: Compresses long directories with middle ellipses and `~` with full path tooltips on hover.
+- **Drag-and-Drop Reordering**: Fixed upward drag slot calculation and layout cursor offset issues.
+- **Multi-Architecture Support**: Precompiled binaries for Windows x64, x86, and ARM64.
 
 ---
 
