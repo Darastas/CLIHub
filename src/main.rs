@@ -97,12 +97,20 @@ fn main() -> eframe::Result {
         let _ = std::fs::write("clihub-panic.log", msg);
     }));
 
+    let icon_data = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")).ok();
+
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("CLIHub")
+        .with_decorations(false)
+        .with_inner_size([1120.0, 720.0])
+        .with_min_inner_size([760.0, 480.0]);
+
+    if let Some(icon) = icon_data {
+        viewport = viewport.with_icon(icon);
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("CLIHub")
-            .with_decorations(false)
-            .with_inner_size([1120.0, 720.0])
-            .with_min_inner_size([760.0, 480.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(

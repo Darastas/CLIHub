@@ -24,6 +24,16 @@ pub struct NotificationService {
     action_rx: Receiver<NotificationAction>,
 }
 
+fn ensure_icon_file() -> Option<String> {
+    let icon_bytes = include_bytes!("../../assets/icon.png");
+    let temp_dir = std::env::temp_dir();
+    let icon_path = temp_dir.join("clihub_logo.png");
+    if !icon_path.exists() {
+        let _ = std::fs::write(&icon_path, icon_bytes);
+    }
+    Some(icon_path.to_string_lossy().to_string())
+}
+
 impl NotificationService {
     pub fn new() -> Self {
         let (action_tx, action_rx) = unbounded();
@@ -49,6 +59,7 @@ impl NotificationService {
         let action_tx = self.action_tx.clone();
         let title = title.to_string();
         let body = body.to_string();
+        let icon_path = ensure_icon_file();
 
         // 异步派生线程发送通知，避免阻塞 UI 线程或等待用户点击
         std::thread::spawn(move || {
@@ -74,6 +85,10 @@ impl NotificationService {
                 .body(&body)
                 .timeout(notify_rust::Timeout::Milliseconds(6000));
 
+            if let Some(ref icon) = icon_path {
+                notification.icon(icon);
+            }
+
             #[cfg(windows)]
             {
                 notification.app_id(APP_USER_MODEL_ID);
@@ -95,6 +110,9 @@ impl NotificationService {
                         .summary(&title)
                         .body(&body)
                         .timeout(notify_rust::Timeout::Milliseconds(6000));
+                    if let Some(ref icon) = icon_path {
+                        fallback.icon(icon);
+                    }
                     fallback.show().ok()
                 }
             };
