@@ -66,6 +66,7 @@ impl NotificationService {
                 }
             }
 
+            // 优先尝试使用注册的 CLIHub AppUserModelID 弹出
             let mut notification = Notification::new();
             notification
                 .appname("CLIHub")
@@ -83,23 +84,31 @@ impl NotificationService {
                 }
             }
 
-            // 在 Windows 上通过 show() 显示 Toast 通知
-            match notification.show() {
-                Ok(handle) => {
-                    // 监听通知点击回调 (在后台线程等待点击)
-                    handle.wait_for_action(move |action| match action {
-                        "default" | "clicked" => {
-                            let _ = action_tx.send(NotificationAction::SwitchTo {
-                                session_idx,
-                                tab_idx,
-                            });
-                        }
-                        _ => {}
-                    });
-                }
+            let result = notification.show();
+            let handle_opt = match result {
+                Ok(h) => Some(h),
                 Err(e) => {
-                    eprintln!("[Notification] 发送系统通知失败: {e}");
+                    eprintln!("[Notification] 带 AppId 显示失败 ({e})，使用默认模式回退...");
+                    let mut fallback = Notification::new();
+                    fallback
+                        .appname("CLIHub")
+                        .summary(&title)
+                        .body(&body)
+                        .timeout(notify_rust::Timeout::Milliseconds(6000));
+                    fallback.show().ok()
                 }
+            };
+
+            if let Some(handle) = handle_opt {
+                handle.wait_for_action(move |action| match action {
+                    "default" | "clicked" => {
+                        let _ = action_tx.send(NotificationAction::SwitchTo {
+                            session_idx,
+                            tab_idx,
+                        });
+                    }
+                    _ => {}
+                });
             }
         });
     }
