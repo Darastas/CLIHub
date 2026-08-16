@@ -6,9 +6,10 @@ use std::time::Duration;
 use egui::{Color32, Context, RichText};
 
 use crate::backend::io_loop;
+use crate::backend::notification::{NotificationAction, NotificationService};
 use crate::backend::pty::PtyHandle;
-use crate::backend::terminal::Terminal;
-use crate::config::{AppConfig, CliEntry, ThemeSettings};
+use crate::backend::terminal::{Terminal, TerminalEvent};
+use crate::config::{AppConfig, CliEntry, NotificationSettings, ThemeSettings};
 use crate::state::{Session, SessionStatus, TerminalInstance};
 use crate::ui::{sidebar, terminal, titlebar};
 
@@ -30,6 +31,8 @@ pub struct HubApp {
     // 设置窗口状态
     show_settings: bool,
     settings_draft: ThemeSettings,
+    notification_draft: NotificationSettings,
+    notification_service: NotificationService,
 }
 
 fn home_dir() -> PathBuf {
@@ -243,6 +246,7 @@ impl HubApp {
         setup_fonts(&cc.egui_ctx);
 
         let initial_theme = config.theme.clone();
+        let initial_notification = config.notification.clone();
         let sessions: Vec<Session> = config
             .clis
             .iter()
@@ -270,6 +274,8 @@ impl HubApp {
             edit_cwd: String::new(),
             show_settings: false,
             settings_draft: initial_theme,
+            notification_draft: initial_notification,
+            notification_service: NotificationService::new(),
         };
         // 自动为默认终端会话开第一个标签页，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -408,11 +414,32 @@ impl HubApp {
         }
     }
 
-    /// 后台数据更新：遍历 会话 → 标签页，拉取 PTY 输出喂进终端、检测退出。禁止绘制。
+    /// 后台数据更新：遍历 会话 → 标签页，拉取 PTY 输出喂进终端、检测退出与通知。禁止绘制。
     fn update_backend(&mut self, ctx: &Context) {
+        // 1) 响应用户点击系统 Toast 后的激活唤醒请求
+        while let Ok(action) = self.notification_service.receiver().try_recv() {
+            match action {
+                NotificationAction::SwitchTo { session_idx, tab_idx } => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    if session_idx < self.sessions.len() {
+                        self.selected = session_idx;
+                        if let Some(s) = self.sessions.get_mut(session_idx) {
+                            if tab_idx < s.tabs.len() {
+                                s.active_tab = tab_idx;
+                            }
+                        }
+                    }
+                    ctx.request_repaint();
+                }
+            }
+        }
+
+        let window_focused = ctx.input(|i| i.focused);
         let mut dirty = false;
-        for s in &mut self.sessions {
-            for tab in &mut s.tabs {
+
+        for (si, s) in self.sessions.iter_mut().enumerate() {
+            for (ti, tab) in s.tabs.iter_mut().enumerate() {
                 // 终端需要写回 PTY 的应答（DSR 光标位置等），立即转发
                 if let Some(t) = &mut tab.terminal {
                     for text in t.drain_pty_writes() {
@@ -422,21 +449,66 @@ impl HubApp {
                             }
                         }
                     }
+
+                    // 终端内部事件（Bell 响铃 / AI 任务等待确认）
+                    for evt in t.drain_events() {
+                        match evt {
+                            TerminalEvent::Bell => {
+                                if self.config.notification.enabled && self.config.notification.on_attention_needed {
+                                    let is_active_tab = window_focused && self.selected == si && s.active_tab == ti;
+                                    if !self.config.notification.only_when_unfocused || !is_active_tab {
+                                        self.notification_service.send(
+                                            &format!("🔔 {}", s.name),
+                                            "AI 任务需要确认或已就绪",
+                                            si,
+                                            ti,
+                                            self.config.notification.play_sound,
+                                        );
+                                    }
+                                }
+                            }
+                            TerminalEvent::Title(_) => {}
+                        }
+                    }
                 }
+
                 // 拉取 PTY 输出 → 喂进 alacritty 网格
                 if let Some(rx) = &tab.rx {
                     if io_loop::drain(rx, &mut tab.terminal) > 0 {
                         dirty = true;
                     }
                 }
+
                 // 检测进程退出
                 if let Some(pty) = &mut tab.pty {
-                    if let Ok(Some(_)) = pty.child.try_wait() {
+                    if let Ok(Some(status)) = pty.child.try_wait() {
                         tab.alive.store(false, std::sync::atomic::Ordering::SeqCst);
                         if let Some(t) = &mut tab.terminal {
                             t.feed_text("\r\n[process exited]\r\n");
                         }
                         tab.pty = None; // 释放 PTY 句柄，避免每帧重复打印 [process exited]
+
+                        // 触发任务完成 / 退出通知
+                        if self.config.notification.enabled && self.config.notification.on_process_exit {
+                            let is_active_tab = window_focused && self.selected == si && s.active_tab == ti;
+                            if !self.config.notification.only_when_unfocused || !is_active_tab {
+                                let (title, body) = if status.success() {
+                                    (format!("🎉 {}", s.name), "任务已完成".to_string())
+                                } else {
+                                    (
+                                        format!("⚠️ {}", s.name),
+                                        format!("任务已结束 ({status:?})"),
+                                    )
+                                };
+                                self.notification_service.send(
+                                    &title,
+                                    &body,
+                                    si,
+                                    ti,
+                                    self.config.notification.play_sound,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -717,12 +789,41 @@ impl HubApp {
                         self.settings_draft.sidebar_card_color = Some(sidebar_bg);
                         changed = true;
                     }
-                    
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    ui.label(RichText::new("Notifications").size(14.0).strong());
+                    ui.add_space(4.0);
+
+                    if ui.checkbox(&mut self.notification_draft.enabled, "启用 Windows 系统通知").changed() {
+                        changed = true;
+                    }
+
+                    if self.notification_draft.enabled {
+                        ui.indent("notification_options", |ui| {
+                            if ui.checkbox(&mut self.notification_draft.on_attention_needed, "AI 任务等待确认 / Bell 响铃时提醒").changed() {
+                                changed = true;
+                            }
+                            if ui.checkbox(&mut self.notification_draft.on_process_exit, "任务完成 / 进程退出时提醒").changed() {
+                                changed = true;
+                            }
+                            if ui.checkbox(&mut self.notification_draft.only_when_unfocused, "仅在后台或非活动会话时提醒（智能免打扰）").changed() {
+                                changed = true;
+                            }
+                            if ui.checkbox(&mut self.notification_draft.play_sound, "播放提示音").changed() {
+                                changed = true;
+                            }
+                        });
+                    }
+
                     ui.add_space(16.0);
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
                         if ui.button("Reset defaults").clicked() {
                             self.settings_draft = ThemeSettings::default();
+                            self.notification_draft = NotificationSettings::default();
                             changed = true;
                         }
                     });
@@ -731,6 +832,7 @@ impl HubApp {
 
         if changed {
             self.config.theme = self.settings_draft.clone();
+            self.config.notification = self.notification_draft.clone();
             ui.ctx().set_visuals(app_visuals(self.settings_draft.dark));
             let _ = self.config.save();
         }

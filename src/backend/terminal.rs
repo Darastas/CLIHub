@@ -68,9 +68,20 @@ impl Default for TermThemeColors {
     }
 }
 
+/// 终端内部产生的事件（供通知系统及 UI 层使用）。
+#[derive(Debug, Clone)]
+pub enum TerminalEvent {
+    /// 终端响铃 (Bell: \a, \x07)，通常表示 AI 任务等待确认/完成或命令结束
+    Bell,
+    /// 标题变更
+    #[allow(dead_code)]
+    Title(String),
+}
+
 /// 把 alacritty 需要写回 PTY 的事件转发给应用层。
 pub struct HubListener {
     pty_tx: Sender<String>,
+    event_tx: Sender<TerminalEvent>,
     /// 当前 (cols, rows)，供尺寸查询应答
     size: Arc<Mutex<(usize, usize)>>,
     /// 主题颜色配置，供 OSC 颜色查询应答
@@ -83,6 +94,14 @@ impl EventListener for HubListener {
             // 终端应答（如 DSR `ESC[6n`）必须写回 PTY
             Event::PtyWrite(text) => {
                 let _ = self.pty_tx.send(text);
+            }
+            // 终端响铃（Bell: \a 或 \x07）
+            Event::Bell => {
+                let _ = self.event_tx.send(TerminalEvent::Bell);
+            }
+            // 窗口标题变更
+            Event::Title(title) => {
+                let _ = self.event_tx.send(TerminalEvent::Title(title));
             }
             // 查询窗口/单元格尺寸（XTWINOPS）
             Event::TextAreaSizeRequest(formatter) => {
@@ -141,6 +160,7 @@ pub struct Terminal {
     pub term: Term<HubListener>,
     processor: Processor,
     pty_rx: Receiver<String>,
+    event_rx: Receiver<TerminalEvent>,
     size: Arc<Mutex<(usize, usize)>>,
     pub theme_colors: Arc<Mutex<TermThemeColors>>,
     cols: u16,
@@ -151,10 +171,12 @@ pub struct Terminal {
 impl Terminal {
     pub fn new(cols: u16, rows: u16, theme_colors: TermThemeColors) -> Self {
         let (pty_tx, pty_rx) = unbounded();
+        let (event_tx, event_rx) = unbounded();
         let size = Arc::new(Mutex::new((cols as usize, rows as usize)));
         let theme_colors = Arc::new(Mutex::new(theme_colors));
         let listener = HubListener {
             pty_tx,
+            event_tx,
             size: size.clone(),
             theme_colors: theme_colors.clone(),
         };
@@ -164,12 +186,22 @@ impl Terminal {
             term,
             processor: Processor::new(),
             pty_rx,
+            event_rx,
             size,
             theme_colors,
             cols,
             rows,
             selection: None,
         }
+    }
+
+    /// 拉取终端内部产生的事件（如 Bell 响铃、标题更新）
+    pub fn drain_events(&mut self) -> Vec<TerminalEvent> {
+        let mut out = Vec::new();
+        while let Ok(evt) = self.event_rx.try_recv() {
+            out.push(evt);
+        }
+        out
     }
 
     /// 把 PTY 输出字节喂给解析器，更新网格状态。

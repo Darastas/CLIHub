@@ -53,6 +53,42 @@ fn default_color_scheme() -> String {
     "Campbell".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
+/// 系统通知设置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    /// 启用系统通知（总开关）
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// 任务暂停 / 等待输入 / Bell 响铃时通知
+    #[serde(default = "default_true")]
+    pub on_attention_needed: bool,
+    /// 任务完成 / 进程退出时通知
+    #[serde(default = "default_true")]
+    pub on_process_exit: bool,
+    /// 仅在窗口失焦（后台）或位于其他会话时通知（智能免打扰）
+    #[serde(default = "default_true")]
+    pub only_when_unfocused: bool,
+    /// 播放提示音
+    #[serde(default = "default_true")]
+    pub play_sound: bool,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            on_attention_needed: true,
+            on_process_exit: true,
+            only_when_unfocused: true,
+            play_sound: true,
+        }
+    }
+}
+
 impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
@@ -73,6 +109,8 @@ pub struct AppConfig {
     pub clis: Vec<CliEntry>,
     #[serde(default)]
     pub theme: ThemeSettings,
+    #[serde(default)]
+    pub notification: NotificationSettings,
 }
 
 impl Default for AppConfig {
@@ -80,6 +118,7 @@ impl Default for AppConfig {
         Self {
             clis: default_entries(),
             theme: ThemeSettings::default(),
+            notification: NotificationSettings::default(),
         }
     }
 }
