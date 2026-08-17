@@ -110,11 +110,6 @@ impl NotificationService {
                 .body(&body)
                 .timeout(notify_rust::Timeout::Milliseconds(6000));
 
-            #[cfg(windows)]
-            {
-                notification.app_id("CLIHub");
-            }
-
             if let Some(ref icon) = icon_path {
                 notification.icon(icon);
             }
