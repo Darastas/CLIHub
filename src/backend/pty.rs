@@ -42,8 +42,8 @@ impl PtyHandle {
         let pair = pty_system.openpty(size).context("打开 PTY 失败")?;
 
         let mut final_args = args.to_vec();
-        let lower_cmd = command.trim().to_lowercase();
-        if (lower_cmd == "codex" || lower_cmd.ends_with("/codex") || lower_cmd.ends_with("\\codex") || lower_cmd.ends_with("codex.exe") || lower_cmd.ends_with("codex.cmd"))
+        let base_name = command.split_whitespace().next().unwrap_or(command).trim().to_lowercase();
+        if (base_name == "codex" || base_name.ends_with("/codex") || base_name.ends_with("\\codex") || base_name.ends_with("codex.exe") || base_name.ends_with("codex.cmd"))
             && !args.iter().any(|a| a.starts_with("-c") || a.starts_with("--config"))
         {
             if dark_mode {
@@ -191,30 +191,35 @@ impl Drop for PtyHandle {
 /// 必须用 `cmd.exe /C <垫片.cmd> ...` 包装。
 #[cfg(windows)]
 fn resolve_command(command: &str, args: &[String]) -> (String, Vec<String>) {
-    let has_ext = Path::new(command)
+    let mut parts = command.split_whitespace();
+    let base_cmd = parts.next().unwrap_or(command);
+    let mut combined_args: Vec<String> = parts.map(|s| s.to_string()).collect();
+    combined_args.extend(args.iter().cloned());
+
+    let has_ext = Path::new(base_cmd)
         .extension()
         .map(|e| !e.is_empty())
         .unwrap_or(false);
-    let has_sep = command.contains(['\\', '/']);
+    let has_sep = base_cmd.contains(['\\', '/']);
 
     let resolved: String = if has_ext || has_sep {
-        command.to_string()
+        base_cmd.to_string()
     } else {
         // 无扩展名：按 exe → cmd → bat → com 顺序在 PATH 中查找
         ["exe", "cmd", "bat", "com"]
             .iter()
-            .find_map(|ext| find_in_path(command, ext))
-            .unwrap_or_else(|| command.to_string())
+            .find_map(|ext| find_in_path(base_cmd, ext))
+            .unwrap_or_else(|| base_cmd.to_string())
     };
 
     let lower = resolved.to_lowercase();
     if lower.ends_with(".cmd") || lower.ends_with(".bat") {
         // 批处理垫片：经 cmd.exe /C 执行
         let mut wrapped = vec!["/C".to_string(), resolved];
-        wrapped.extend(args.iter().cloned());
+        wrapped.extend(combined_args);
         ("cmd.exe".to_string(), wrapped)
     } else {
-        (resolved, args.to_vec())
+        (resolved, combined_args)
     }
 }
 

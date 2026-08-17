@@ -6,8 +6,6 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use notify_rust::Notification;
 
-pub const APP_USER_MODEL_ID: &str = "CLIHub.Desktop.App";
-
 /// 用户点击通知后触发的动作。
 #[derive(Debug, Clone, Copy)]
 pub enum NotificationAction {
@@ -33,6 +31,43 @@ fn ensure_icon_file() -> Option<String> {
     }
     Some(icon_path.to_string_lossy().to_string())
 }
+
+#[cfg(windows)]
+fn play_system_sound() {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    let sound_paths = [
+        r"C:\Windows\Media\Windows Notify System Generic.wav",
+        r"C:\Windows\Media\Windows Background.wav",
+        r"C:\Windows\Media\Windows Ding.wav",
+    ];
+
+    for path in sound_paths {
+        if std::path::Path::new(path).exists() {
+            let wide: Vec<u16> = OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect();
+            unsafe {
+                unsafe extern "system" {
+                    fn PlaySoundW(psz_sound: *const u16, hmod: usize, fdw_sound: u32) -> i32;
+                }
+                const SND_ASYNC: u32 = 0x0001;
+                const SND_FILENAME: u32 = 0x00020000;
+                let _ = PlaySoundW(wide.as_ptr(), 0, SND_ASYNC | SND_FILENAME);
+                return;
+            }
+        }
+    }
+
+    unsafe {
+        unsafe extern "system" {
+            fn MessageBeep(u_type: u32) -> i32;
+        }
+        let _ = MessageBeep(0x00000040);
+    }
+}
+
+#[cfg(not(windows))]
+fn play_system_sound() {}
 
 impl NotificationService {
     pub fn new() -> Self {
@@ -65,19 +100,9 @@ impl NotificationService {
         std::thread::spawn(move || {
             // 播放 Windows 原生系统提示音
             if play_sound {
-                #[cfg(windows)]
-                {
-                    unsafe {
-                        unsafe extern "system" {
-                            fn MessageBeep(u_type: u32) -> i32;
-                        }
-                        // 0x00000040 = MB_ICONASTERISK (Windows 标准提示音)
-                        let _ = MessageBeep(0x00000040);
-                    }
-                }
+                play_system_sound();
             }
 
-            // 优先尝试使用注册的 CLIHub AppUserModelID 弹出
             let mut notification = Notification::new();
             notification
                 .appname("CLIHub")
@@ -89,31 +114,12 @@ impl NotificationService {
                 notification.icon(icon);
             }
 
-            #[cfg(windows)]
-            {
-                notification.app_id(APP_USER_MODEL_ID);
-                if play_sound {
-                    notification.sound_name("ms-winsoundevent:Notification.Default");
-                } else {
-                    notification.sound_name("Silent");
-                }
-            }
-
             let result = notification.show();
             let handle_opt = match result {
                 Ok(h) => Some(h),
                 Err(e) => {
-                    eprintln!("[Notification] 带 AppId 显示失败 ({e})，使用默认模式回退...");
-                    let mut fallback = Notification::new();
-                    fallback
-                        .appname("CLIHub")
-                        .summary(&title)
-                        .body(&body)
-                        .timeout(notify_rust::Timeout::Milliseconds(6000));
-                    if let Some(ref icon) = icon_path {
-                        fallback.icon(icon);
-                    }
-                    fallback.show().ok()
+                    eprintln!("[Notification] 显示通知失败: {e}");
+                    None
                 }
             };
 
