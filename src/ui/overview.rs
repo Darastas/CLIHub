@@ -33,8 +33,6 @@ pub fn show(
     let mut action = None;
     let dark = theme.dark;
 
-    let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
-
     let bg_card = if dark {
         Color32::from_rgb(24, 27, 33)
     } else {
@@ -45,7 +43,12 @@ pub fn show(
     } else {
         Color32::from_rgb(222, 228, 238)
     };
-    let border_hover = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]);
+    // 鼠标悬停在卡片上时使用高亮白色，与聚焦窗口对应
+    let border_hover = if dark {
+        Color32::WHITE
+    } else {
+        Color32::from_rgb(30, 35, 45)
+    };
 
     let text_main = if dark {
         Color32::from_rgb(235, 240, 250)
@@ -246,18 +249,42 @@ pub fn show(
                                 });
                             }
 
-                            // 右键菜单：列出所有标签页，支持直接点击直达对应 Tab
+                            // 右键菜单：列出所有标签页，符合 CLIHub 暗黑毛玻璃现代风格
                             resp.context_menu(|ui| {
-                                ui.set_min_width(160.0);
-                                ui.label(
-                                    egui::RichText::new(format!("{} · 全部标签页", s.name))
-                                        .font(FontId::proportional(12.5))
-                                        .strong(),
-                                );
+                                ui.set_min_width(170.0);
+                                ui.add_space(2.0);
+                                
+                                // 标题区
+                                ui.horizontal(|ui| {
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        egui::RichText::new(&s.name)
+                                            .font(FontId::proportional(13.0))
+                                            .color(text_main)
+                                            .strong(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!("({} tabs)", s.tabs.len()))
+                                            .font(FontId::proportional(11.0))
+                                            .color(text_sub),
+                                    );
+                                });
+                                
+                                ui.add_space(4.0);
                                 ui.separator();
+                                ui.add_space(2.0);
 
                                 if s.tabs.is_empty() {
-                                    if ui.button("▶ 启动新会话").clicked() {
+                                    let btn = egui::Button::new(
+                                        egui::RichText::new("▶ 启动新会话")
+                                            .font(FontId::proportional(12.5))
+                                            .color(text_main),
+                                    )
+                                    .fill(Color32::TRANSPARENT)
+                                    .corner_radius(CornerRadius::same(6))
+                                    .min_size(vec2(160.0, 26.0));
+
+                                    if ui.add(btn).clicked() {
                                         action = Some(OverviewAction::SelectSessionTab {
                                             session_idx: idx,
                                             tab_idx: 0,
@@ -268,15 +295,70 @@ pub fn show(
                                     for (ti, tab) in s.tabs.iter().enumerate() {
                                         let is_current = ti == s.active_tab;
                                         let is_alive = tab.alive.load(std::sync::atomic::Ordering::SeqCst);
-                                        let dot = if is_alive { "🟢" } else { "⚪" };
-                                        let btn_text = format!(
-                                            "{} Tab {} {}",
-                                            dot,
-                                            ti + 1,
-                                            if is_current { "(当前)" } else { "" }
+                                        let dot_color = if is_alive {
+                                            Color32::from_rgb(46, 204, 113)
+                                        } else {
+                                            Color32::from_gray(140)
+                                        };
+
+                                        let (btn_rect, btn_resp) = ui.allocate_exact_size(
+                                            vec2(ui.available_width().max(160.0), 28.0),
+                                            Sense::click(),
                                         );
 
-                                        if ui.button(btn_text).clicked() {
+                                        let is_btn_hovered = btn_resp.hovered();
+                                        let item_bg = if is_current {
+                                            if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(16) }
+                                        } else if is_btn_hovered {
+                                            if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(8) }
+                                        } else {
+                                            Color32::TRANSPARENT
+                                        };
+
+                                        let p = ui.painter();
+                                        p.rect_filled(btn_rect, CornerRadius::same(6), item_bg);
+                                        if is_current {
+                                            p.rect_stroke(
+                                                btn_rect,
+                                                CornerRadius::same(6),
+                                                Stroke::new(0.5, if dark { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(30) }),
+                                                egui::StrokeKind::Inside,
+                                            );
+                                        }
+
+                                        // 状态指示圆点
+                                        p.circle_filled(
+                                            Pos2::new(btn_rect.min.x + 12.0, btn_rect.center().y),
+                                            3.5,
+                                            dot_color,
+                                        );
+
+                                        // 标签文字
+                                        let label_fg = if is_btn_hovered || is_current {
+                                            if dark { Color32::WHITE } else { Color32::BLACK }
+                                        } else {
+                                            text_main
+                                        };
+                                        p.text(
+                                            Pos2::new(btn_rect.min.x + 24.0, btn_rect.center().y),
+                                            Align2::LEFT_CENTER,
+                                            format!("Tab {}", ti + 1),
+                                            FontId::proportional(12.5),
+                                            label_fg,
+                                        );
+
+                                        // 当前状态标记
+                                        if is_current {
+                                            p.text(
+                                                Pos2::new(btn_rect.max.x - 8.0, btn_rect.center().y),
+                                                Align2::RIGHT_CENTER,
+                                                "当前",
+                                                FontId::proportional(10.5),
+                                                if dark { Color32::from_white_alpha(160) } else { Color32::from_black_alpha(160) },
+                                            );
+                                        }
+
+                                        if btn_resp.clicked() {
                                             action = Some(OverviewAction::SelectSessionTab {
                                                 session_idx: idx,
                                                 tab_idx: ti,
@@ -285,12 +367,40 @@ pub fn show(
                                         }
                                     }
 
+                                    ui.add_space(2.0);
                                     ui.separator();
-                                    if ui.button("＋ 新建标签页 (New Tab)").clicked() {
+                                    ui.add_space(2.0);
+
+                                    let (add_rect, add_resp) = ui.allocate_exact_size(
+                                        vec2(ui.available_width().max(160.0), 28.0),
+                                        Sense::click(),
+                                    );
+                                    let is_add_hover = add_resp.hovered();
+                                    let add_bg = if is_add_hover {
+                                        if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(10) }
+                                    } else {
+                                        Color32::TRANSPARENT
+                                    };
+                                    let p = ui.painter();
+                                    p.rect_filled(add_rect, CornerRadius::same(6), add_bg);
+                                    p.text(
+                                        Pos2::new(add_rect.min.x + 10.0, add_rect.center().y),
+                                        Align2::LEFT_CENTER,
+                                        "＋ 新建标签页 (New Tab)",
+                                        FontId::proportional(12.0),
+                                        if is_add_hover {
+                                            if dark { Color32::WHITE } else { Color32::BLACK }
+                                        } else {
+                                            text_sub
+                                        },
+                                    );
+
+                                    if add_resp.clicked() {
                                         action = Some(OverviewAction::NewTab(idx));
                                         ui.close();
                                     }
                                 }
+                                ui.add_space(2.0);
                             });
                         }
                         ui.add_space(card_spacing);
