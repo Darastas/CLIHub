@@ -1,7 +1,8 @@
 //! 全局多会话全景看板 (Grid Overview Mode)
 //!
 //! 一屏统览所有正在运行的 AI CLI 会话状态与终端实时画面，
-//! 支持自适应多宫格布局、状态指示灯、微缩终端画面预览与一键聚焦跳转。
+//! 支持自适应多宫格布局、状态指示灯、微缩终端画面预览与一键聚焦跳转，
+//! 支持右键卡片弹出所有标签页菜单并直接点击直达对应 Tab。
 
 use alacritty_terminal::grid::Dimensions;
 use egui::{vec2, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, Ui};
@@ -13,10 +14,13 @@ use crate::ui::terminal::TermTheme;
 /// 看板中触发的用户动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverviewAction {
-    /// 聚焦并切换进入某个会话
-    SelectSession(usize),
-    /// 打开新增会话弹窗
-    NewSession,
+    /// 聚焦并切换进入某个会话的特定标签页
+    SelectSessionTab {
+        session_idx: usize,
+        tab_idx: usize,
+    },
+    /// 为某个会话新建标签页并进入
+    NewTab(usize),
 }
 
 /// 渲染全局多会话全景看板。
@@ -29,6 +33,8 @@ pub fn show(
     let mut action = None;
     let dark = theme.dark;
 
+    let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
+
     let bg_card = if dark {
         Color32::from_rgb(26, 29, 36)
     } else {
@@ -39,7 +45,8 @@ pub fn show(
     } else {
         Color32::from_rgb(222, 228, 238)
     };
-    let border_hover = Color32::from_rgb(0, 111, 238);
+    let border_hover = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]);
+
     let text_main = if dark {
         Color32::from_rgb(235, 240, 250)
     } else {
@@ -58,7 +65,7 @@ pub fn show(
 
     ui.add_space(16.0);
 
-    // ---- 顶部概览 Header ----
+    // ---- 顶部概览 Header（纯粹清爽，无冗余新建按钮） ----
     ui.horizontal(|ui| {
         ui.add_space(20.0);
         ui.vertical(|ui| {
@@ -76,7 +83,7 @@ pub fn show(
             let total_tabs: usize = sessions.iter().map(|s| s.tabs.len()).sum();
             ui.label(
                 egui::RichText::new(format!(
-                    "共 {} 个会话 · {} 个正在运行 · 活跃标签 {} 个 (按 Ctrl+Shift+O 或点击卡片进入工作台)",
+                    "共 {} 个会话 · {} 个正在运行 · 活跃标签 {} 个 (点击卡片进入，右键卡片直接选择 Tab)",
                     sessions.len(),
                     running_count,
                     total_tabs
@@ -84,25 +91,6 @@ pub fn show(
                 .font(FontId::proportional(12.0))
                 .color(text_sub),
             );
-        });
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(20.0);
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new("＋ 新建会话")
-                            .font(FontId::proportional(12.5))
-                            .color(Color32::WHITE),
-                    )
-                    .fill(Color32::from_rgb(0, 111, 238))
-                    .corner_radius(CornerRadius::same(6))
-                    .min_size(vec2(90.0, 30.0)),
-                )
-                .clicked()
-            {
-                action = Some(OverviewAction::NewSession);
-            }
         });
     });
 
@@ -245,10 +233,62 @@ pub fn show(
                                 );
                             }
 
-                            // 悬停时提示进入
-                            if resp.on_hover_text(format!("{} · 点击快速切换进入工作台", dot_tooltip)).clicked() {
-                                action = Some(OverviewAction::SelectSession(idx));
+                            let resp = resp.on_hover_text(format!("{} · 左键进入，右键选择 Tab", dot_tooltip));
+
+                            // 左键点击直接进入当前活跃 Tab
+                            if resp.clicked() {
+                                action = Some(OverviewAction::SelectSessionTab {
+                                    session_idx: idx,
+                                    tab_idx: s.active_tab,
+                                });
                             }
+
+                            // 右键菜单：列出所有标签页，支持直接点击直达对应 Tab
+                            resp.context_menu(|ui| {
+                                ui.set_min_width(160.0);
+                                ui.label(
+                                    egui::RichText::new(format!("{} · 全部标签页", s.name))
+                                        .font(FontId::proportional(12.5))
+                                        .strong(),
+                                );
+                                ui.separator();
+
+                                if s.tabs.is_empty() {
+                                    if ui.button("▶ 启动新会话").clicked() {
+                                        action = Some(OverviewAction::SelectSessionTab {
+                                            session_idx: idx,
+                                            tab_idx: 0,
+                                        });
+                                        ui.close();
+                                    }
+                                } else {
+                                    for (ti, tab) in s.tabs.iter().enumerate() {
+                                        let is_current = ti == s.active_tab;
+                                        let is_alive = tab.alive.load(std::sync::atomic::Ordering::SeqCst);
+                                        let dot = if is_alive { "🟢" } else { "⚪" };
+                                        let btn_text = format!(
+                                            "{} Tab {} {}",
+                                            dot,
+                                            ti + 1,
+                                            if is_current { "(当前)" } else { "" }
+                                        );
+
+                                        if ui.button(btn_text).clicked() {
+                                            action = Some(OverviewAction::SelectSessionTab {
+                                                session_idx: idx,
+                                                tab_idx: ti,
+                                            });
+                                            ui.close();
+                                        }
+                                    }
+
+                                    ui.separator();
+                                    if ui.button("＋ 新建标签页 (New Tab)").clicked() {
+                                        action = Some(OverviewAction::NewTab(idx));
+                                        ui.close();
+                                    }
+                                }
+                            });
                         }
                         ui.add_space(card_spacing);
                     }

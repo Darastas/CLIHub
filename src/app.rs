@@ -587,19 +587,25 @@ impl HubApp {
             if self.in_overview {
                 if let Some(ov_act) = crate::ui::overview::show(ui, &self.sessions, &self.config.theme, &theme) {
                     match ov_act {
-                        crate::ui::overview::OverviewAction::SelectSession(idx) => {
-                            self.selected = idx;
+                        crate::ui::overview::OverviewAction::SelectSessionTab { session_idx, tab_idx } => {
+                            self.selected = session_idx;
                             self.in_overview = false;
                             let should_start = {
-                                let s = &self.sessions[idx];
+                                let s = &self.sessions[session_idx];
                                 s.tabs.is_empty() && s.status() != SessionStatus::Failed
                             };
                             if should_start {
-                                self.spawn_tab(idx);
+                                self.spawn_tab(session_idx);
+                            } else if let Some(s) = self.sessions.get_mut(session_idx) {
+                                if tab_idx < s.tabs.len() {
+                                    s.active_tab = tab_idx;
+                                }
                             }
                         }
-                        crate::ui::overview::OverviewAction::NewSession => {
-                            self.adding_cli = true;
+                        crate::ui::overview::OverviewAction::NewTab(session_idx) => {
+                            self.selected = session_idx;
+                            self.in_overview = false;
+                            self.spawn_tab(session_idx);
                         }
                     }
                 }

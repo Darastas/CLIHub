@@ -111,6 +111,15 @@ fn name_secondary(dark: bool) -> Color32 {
     }
 }
 
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    Color32::from_rgba_premultiplied(
+        (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).clamp(0.0, 255.0) as u8,
+        (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).clamp(0.0, 255.0) as u8,
+        (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).clamp(0.0, 255.0) as u8,
+        (a.a() as f32 * (1.0 - t) + b.a() as f32 * t).clamp(0.0, 255.0) as u8,
+    )
+}
+
 const ROW_HEIGHT: f32 = 56.0;
 const ROW_SPACING: f32 = 4.0;
 const SLOT_STRIDE: f32 = ROW_HEIGHT + ROW_SPACING;
@@ -125,6 +134,7 @@ pub fn show(
     let mut action = SidebarAction::default();
 
     let dark = ui.visuals().dark_mode;
+    let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
     
     // Clear drag state and handle drop if mouse is released
     if !ui.ctx().input(|i| i.pointer.any_down()) {
@@ -193,35 +203,43 @@ pub fn show(
                 action.add = true;
             }
 
-            // 绘制 ⊞ 全景看板按钮
+            // 绘制 ⊞ 全景看板按钮（与 Sessions 选中卡片及 ＋ 按钮风格 100% 统一）
             let is_ov_hovered = ov_resp.hovered();
-            let ov_bg = if in_overview {
-                Color32::from_rgb(0, 111, 238)
-            } else if is_ov_hovered {
-                if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(16) }
-            } else {
-                if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) }
-            };
-            let ov_stroke = if in_overview {
-                Color32::from_rgb(0, 111, 238)
-            } else {
-                if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) }
+            let ov_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_ov_hover"), is_ov_hovered && !in_overview);
+            let ov_sel_factor = ui.ctx().animate_bool(Id::new("sidebar_ov_sel"), in_overview);
+
+            let ov_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+            let ov_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+            let ov_sel = if dark { 
+                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50)
+            } else { 
+                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 30)
             };
 
+            let ov_bg = lerp_color(lerp_color(ov_base, ov_hover, ov_hover_factor), ov_sel, ov_sel_factor);
+
+            let ov_stroke_normal = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+            let ov_stroke_sel = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.6);
+            let ov_stroke = lerp_color(ov_stroke_normal, ov_stroke_sel, ov_sel_factor);
+
+            let ov_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+            p.rect_filled(ov_rect.translate(vec2(0.0, 1.5)), 6.0, ov_shadow);
             p.rect_filled(ov_rect, 6.0, ov_bg);
             p.rect_stroke(ov_rect, 6.0, egui::Stroke::new(0.5, ov_stroke), egui::StrokeKind::Inside);
-            let ov_fg = if in_overview {
-                Color32::WHITE
-            } else if is_ov_hovered {
+
+            let ov_fg_normal = if is_ov_hovered {
                 if dark { Color32::WHITE } else { Color32::BLACK }
             } else {
                 if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
             };
+            let ov_fg_sel = if dark { Color32::WHITE } else { Color32::BLACK };
+            let ov_fg = lerp_color(ov_fg_normal, ov_fg_sel, ov_sel_factor);
+
             p.text(
                 ov_rect.center(),
                 Align2::CENTER_CENTER,
                 "⊞",
-                FontId::new(13.0, egui::FontFamily::Proportional),
+                FontId::new(12.0, egui::FontFamily::Proportional),
                 ov_fg,
             );
 
@@ -341,15 +359,6 @@ fn draw_card(
     // Smooth animations for hover and selection
     let sel_factor = ui.ctx().animate_bool(Id::new(("sel", s.id)), is_sel);
     let hover_factor = ui.ctx().animate_bool(Id::new(("hover", s.id)), hovered && !is_sel && !is_any_dragged);
-
-    fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-        Color32::from_rgba_premultiplied(
-            (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).clamp(0.0, 255.0) as u8,
-            (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).clamp(0.0, 255.0) as u8,
-            (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).clamp(0.0, 255.0) as u8,
-            (a.a() as f32 * (1.0 - t) + b.a() as f32 * t).clamp(0.0, 255.0) as u8,
-        )
-    }
 
     let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
     let hover_color = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
