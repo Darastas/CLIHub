@@ -1,7 +1,7 @@
 //! 全局多会话全景看板 (Grid Overview Mode)
 //!
 //! 一屏统览所有正在运行的 AI CLI 会话状态与全彩完整微缩终端画面，
-//! 支持自适应等比网格、全彩 ANSI 渲染、自绘 TUI 完美还原与右键直达特定 Tab。
+//! 一行两列等比精确缩放，完美还原主界面终端比例与自绘 TUI 界面。
 
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -93,17 +93,33 @@ pub fn show(
     ui.separator();
     ui.add_space(10.0);
 
-    // ---- 多宫格自适应卡片区域（宽屏 2 列或 3 列，等比展示完整终端） ----
+    // 计算主界面终端的标准长宽比（通常约为 1.45 ~ 1.65）
+    let orig_font_id = FontId::new(term_theme.font_size, term_theme.font_family.clone());
+    let (orig_char_w, orig_row_h) = ui.fonts_mut(|f| (f.glyph_width(&orig_font_id, ' '), f.row_height(&orig_font_id)));
+
+    // ---- 多宫格自适应卡片区域（一行固定 2 列，等比展示完整终端） ----
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
             let available_width = ui.available_width() - 40.0;
-            let min_card_w = 440.0;
-            let cols_count = ((available_width / min_card_w).floor() as usize).clamp(1, 3);
+            let cols_count = if available_width < 600.0 { 1 } else { 2 };
             let card_spacing = 16.0;
-            let card_width = ((available_width - (cols_count - 1) as f32 * card_spacing) / cols_count as f32).max(360.0);
-            // 终端按 ~16:10 比例舒展呈现
-            let card_height = (card_width * 0.58).clamp(260.0, 340.0);
+            let card_width = if cols_count == 1 {
+                available_width
+            } else {
+                (available_width - card_spacing) / 2.0
+            };
+
+            // 预览区域的宽度与等比高度
+            let preview_margin_x = 10.0;
+            let preview_margin_y = 10.0;
+            let header_h = 38.0;
+            let preview_w = card_width - preview_margin_x * 2.0;
+
+            // 默认按 80 列 × 24 行的主终端标准等比计算卡片高度
+            let default_aspect = (80.0 * orig_char_w) / (24.0 * orig_row_h);
+            let preview_h = (preview_w / default_aspect).clamp(200.0, 380.0);
+            let card_height = header_h + preview_h + preview_margin_y * 2.0;
 
             let total_sessions = sessions.len();
             let rows_count = (total_sessions + cols_count - 1) / cols_count;
@@ -149,7 +165,6 @@ pub fn show(
                             );
 
                             // ---- 卡片 Header ----
-                            let header_h = 38.0;
                             let header_rect = Rect::from_min_size(card_rect.min, vec2(card_width, header_h));
 
                             // 状态圆点
@@ -184,10 +199,9 @@ pub fn show(
                             );
 
                             // ---- 卡片 Body (全彩等比微缩终端画面) ----
-                            let preview_margin = 10.0;
                             let preview_rect = Rect::from_min_max(
-                                Pos2::new(card_rect.min.x + preview_margin, card_rect.min.y + header_h),
-                                Pos2::new(card_rect.max.x - preview_margin, card_rect.max.y - 10.0),
+                                Pos2::new(card_rect.min.x + preview_margin_x, card_rect.min.y + header_h),
+                                Pos2::new(card_rect.max.x - preview_margin_x, card_rect.max.y - preview_margin_y),
                             );
 
                             painter.rect_filled(preview_rect, CornerRadius::same(6), term_theme.background);
@@ -202,7 +216,7 @@ pub fn show(
                             let active_tab = s.tabs.get(s.active_tab);
                             if let Some(tab) = active_tab {
                                 if let Some(t) = &tab.terminal {
-                                    render_mini_terminal(ui, t, term_theme, preview_rect);
+                                    render_scaled_terminal(ui, t, term_theme, preview_rect, orig_char_w, orig_row_h);
                                 } else {
                                     painter.text(
                                         preview_rect.center(),
@@ -290,13 +304,15 @@ pub fn show(
     action
 }
 
-/// 真彩微缩终端网格渲染器：
-/// 等比缩小并完整渲染终端视口内的全部行、列、字符与真实 ANSI 色彩。
-fn render_mini_terminal(
-    ui: &Ui,
+/// 像素级等比真彩微缩终端渲染器：
+/// 严格依据等宽字体的真实长宽比等比缩小，字符与框线 100% 严密贴合，绝不错位。
+fn render_scaled_terminal(
+    ui: &mut Ui,
     terminal: &crate::backend::terminal::Terminal,
     term_theme: &TermTheme,
     rect: Rect,
+    orig_char_w: f32,
+    orig_row_h: f32,
 ) {
     let term = &terminal.term;
     let grid = term.grid();
@@ -305,19 +321,33 @@ fn render_mini_terminal(
     let screen_lines = grid.screen_lines();
     let cols = terminal.dimensions().0 as usize;
 
-    if screen_lines == 0 || cols == 0 {
+    if screen_lines == 0 || cols == 0 || orig_char_w <= 0.0 || orig_row_h <= 0.0 {
         return;
     }
 
-    let mini_col_w = rect.width() / cols as f32;
-    let mini_row_h = rect.height() / screen_lines as f32;
-    let font_size = (mini_row_h * 0.95).clamp(4.0, 11.0);
-    let font_mono = FontId::new(font_size, term_theme.font_family.clone());
+    // 终端内容的完整原始物理尺寸
+    let full_content_w = cols as f32 * orig_char_w;
+    let full_content_h = screen_lines as f32 * orig_row_h;
+
+    // 计算等比缩放因子，使整个终端画面严密适配预览区域
+    let scale = (rect.width() / full_content_w).min(rect.height() / full_content_h);
+
+    let scaled_font_size = (term_theme.font_size * scale).max(3.5);
+    let font_mono = FontId::new(scaled_font_size, term_theme.font_family.clone());
+
+    // 精确获取该微缩字号下的实际单字符宽度与行高
+    let (char_w, row_h) = ui.fonts_mut(|f| (f.glyph_width(&font_mono, ' '), f.row_height(&font_mono)));
+
+    let actual_render_w = cols as f32 * char_w;
+    let actual_render_h = screen_lines as f32 * row_h;
+
+    // 居中呈现
+    let origin_x = rect.min.x + (rect.width() - actual_render_w).max(0.0) / 2.0;
+    let origin_y = rect.min.y + (rect.height() - actual_render_h).max(0.0) / 2.0;
 
     let painter = ui.painter().with_clip_rect(rect);
-    let origin = rect.min;
 
-    // 收集屏幕可视区每行的单元格
+    // 收集当前视口的所有行
     let mut lines: Vec<Vec<&Cell>> = Vec::with_capacity(screen_lines);
     let mut current_line = None;
     for item in grid.display_iter() {
@@ -334,7 +364,7 @@ fn render_mini_terminal(
         if li >= screen_lines {
             break;
         }
-        let y = origin.y + li as f32 * mini_row_h;
+        let y = origin_y + li as f32 * row_h;
 
         // 1) 背景 run (合并同色背景块)
         let mut runs: Vec<(usize, usize, Color32)> = Vec::new();
@@ -376,10 +406,10 @@ fn render_mini_terminal(
 
         // 绘制背景色块
         for (s, e, c) in &runs {
-            let x0 = origin.x + *s as f32 * mini_col_w;
-            let x1 = origin.x + *e as f32 * mini_col_w;
+            let x0 = origin_x + *s as f32 * char_w;
+            let x1 = origin_x + *e as f32 * char_w;
             painter.rect_filled(
-                Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + mini_row_h)),
+                Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
                 0.0,
                 *c,
             );
@@ -436,7 +466,7 @@ fn render_mini_terminal(
 
         // 绘制全彩文字
         for (start, text, color) in &spans {
-            let pos = Pos2::new(origin.x + *start as f32 * mini_col_w, y);
+            let pos = Pos2::new(origin_x + *start as f32 * char_w, y);
             painter.text(pos, Align2::LEFT_TOP, text, font_mono.clone(), *color);
         }
     }
