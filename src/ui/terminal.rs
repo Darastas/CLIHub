@@ -853,11 +853,11 @@ fn paint_grid(
     let _ = rows;
 }
 
-fn luminance(c: Color32) -> f32 {
+pub(crate) fn luminance(c: Color32) -> f32 {
     0.2126 * (c.r() as f32) + 0.7152 * (c.g() as f32) + 0.0722 * (c.b() as f32)
 }
 
-fn is_graphic_char(c: char) -> bool {
+pub(crate) fn is_graphic_char(c: char) -> bool {
     // 常见的 Unicode 绘图字符、色块、方块（ANSI 图形/Logo 使用）
     matches!(
         c,
@@ -866,7 +866,7 @@ fn is_graphic_char(c: char) -> bool {
     )
 }
 
-fn resolve_cell(cell: &Cell, colors: &Colors, theme: &TermTheme) -> (Color32, Color32) {
+pub(crate) fn resolve_cell(cell: &Cell, colors: &Colors, theme: &TermTheme) -> (Color32, Color32) {
     let mut fg = resolve_color(&cell.fg, colors, theme, theme.foreground);
     let mut bg = resolve_color(&cell.bg, colors, theme, theme.background);
 
@@ -905,7 +905,7 @@ fn resolve_cell(cell: &Cell, colors: &Colors, theme: &TermTheme) -> (Color32, Co
     (fg, bg)
 }
 
-fn resolve_color(color: &TermColor, colors: &Colors, theme: &TermTheme, fallback: Color32) -> Color32 {
+pub(crate) fn resolve_color(color: &TermColor, colors: &Colors, theme: &TermTheme, fallback: Color32) -> Color32 {
     match color {
         TermColor::Named(n) => {
             let idx = *n as usize;
@@ -933,7 +933,7 @@ fn resolve_color(color: &TermColor, colors: &Colors, theme: &TermTheme, fallback
     }
 }
 
-fn rgb_to_color32(rgb: Rgb) -> Color32 {
+pub(crate) fn rgb_to_color32(rgb: Rgb) -> Color32 {
     Color32::from_rgb(rgb.r, rgb.g, rgb.b)
 }
 
