@@ -33,6 +33,7 @@ pub struct HubApp {
     settings_draft: ThemeSettings,
     notification_draft: NotificationSettings,
     notification_service: NotificationService,
+    in_overview: bool,
 }
 
 fn home_dir() -> PathBuf {
@@ -276,6 +277,7 @@ impl HubApp {
             settings_draft: initial_theme,
             notification_draft: initial_notification,
             notification_service: NotificationService::new(),
+            in_overview: false,
         };
         // 自动为默认终端会话开第一个标签页，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -521,6 +523,11 @@ impl HubApp {
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {
+        // 全局快捷键：Ctrl+Shift+O 切换全景多会话看板
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::O)) {
+            self.in_overview = !self.in_overview;
+        }
+
         // 自定义无边框标题栏（占用顶部，面板自动下移）
         if titlebar::show(ui) {
             self.settings_draft = self.config.theme.clone();
@@ -532,10 +539,14 @@ impl HubApp {
             .resizable(false)
             .exact_size(232.0)
             .show(ui, |ui| {
-                side = sidebar::show(ui, &self.sessions, self.selected, &self.config.theme);
+                side = sidebar::show(ui, &self.sessions, self.selected, self.in_overview, &self.config.theme);
             });
+        if side.toggle_overview {
+            self.in_overview = !self.in_overview;
+        }
         if let Some(idx) = side.select {
             self.selected = idx;
+            self.in_overview = false;
             // 首次选中且无标签页时，自动开第一个标签；后续用右侧 + 开新标签
             let should_start = {
                 let s = &self.sessions[idx];
@@ -573,15 +584,36 @@ impl HubApp {
         // 终端主题（按配置构建一次）
         let theme = self.build_theme();
         egui::CentralPanel::default_margins().show(ui, |ui| {
-            let session = self.sessions.get_mut(self.selected);
-            match session {
-                Some(session) => {
-                    action = terminal::show(ui, session, input_enabled, &theme);
+            if self.in_overview {
+                if let Some(ov_act) = crate::ui::overview::show(ui, &self.sessions, &self.config.theme, &theme) {
+                    match ov_act {
+                        crate::ui::overview::OverviewAction::SelectSession(idx) => {
+                            self.selected = idx;
+                            self.in_overview = false;
+                            let should_start = {
+                                let s = &self.sessions[idx];
+                                s.tabs.is_empty() && s.status() != SessionStatus::Failed
+                            };
+                            if should_start {
+                                self.spawn_tab(idx);
+                            }
+                        }
+                        crate::ui::overview::OverviewAction::NewSession => {
+                            self.adding_cli = true;
+                        }
+                    }
                 }
-                None => {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("No session selected");
-                    });
+            } else {
+                let session = self.sessions.get_mut(self.selected);
+                match session {
+                    Some(session) => {
+                        action = terminal::show(ui, session, input_enabled, &theme);
+                    }
+                    None => {
+                        ui.centered_and_justified(|ui| {
+                            ui.label("No session selected");
+                        });
+                    }
                 }
             }
         });

@@ -10,7 +10,45 @@ use std::sync::Arc;
 use crossbeam_channel::Receiver;
 
 use crate::backend::pty::PtyHandle;
-use crate::backend::terminal::Terminal;
+use crate::backend::terminal::{SearchMatch, Terminal};
+
+/// 终端搜索栏状态。
+#[derive(Debug, Clone, Default)]
+pub struct SearchState {
+    pub is_open: bool,
+    pub query: String,
+    pub case_sensitive: bool,
+    pub matches: Vec<SearchMatch>,
+    pub active_match: usize,
+    /// 标记是否需要将焦点聚焦到搜索输入框
+    pub request_focus: bool,
+}
+
+impl SearchState {
+    pub fn next_match(&mut self) {
+        if !self.matches.is_empty() {
+            self.active_match = (self.active_match + 1) % self.matches.len();
+        }
+    }
+
+    pub fn prev_match(&mut self) {
+        if !self.matches.is_empty() {
+            if self.active_match == 0 {
+                self.active_match = self.matches.len() - 1;
+            } else {
+                self.active_match -= 1;
+            }
+        }
+    }
+
+    pub fn current_match(&self) -> Option<&SearchMatch> {
+        if self.matches.is_empty() {
+            None
+        } else {
+            self.matches.get(self.active_match)
+        }
+    }
+}
 
 /// 会话当前状态，用于侧边栏展示。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +81,8 @@ pub struct TerminalInstance {
     pub ime_just_committed_text: Option<String>,
     /// 滚动累积量
     pub scroll_accum: f32,
+    /// 终端内关键词搜索状态
+    pub search_state: SearchState,
 }
 
 impl TerminalInstance {
@@ -56,6 +96,7 @@ impl TerminalInstance {
             ime_preedit: String::new(),
             ime_just_committed_text: None,
             scroll_accum: 0.0,
+            search_state: SearchState::default(),
         }
     }
 

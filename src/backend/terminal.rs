@@ -29,6 +29,16 @@ pub struct SelectionRange {
     pub end: GridPoint,
 }
 
+/// 终端内搜索到的单个匹配项坐标。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchMatch {
+    /// 实际网格行号（Line(-history_size)..Line(screen_lines - 1)）
+    pub line: i32,
+    /// 匹配起始列（包含）
+    pub col_start: usize,
+    /// 匹配结束列（包含）
+    pub col_end: usize,
+}
 
 use alacritty_terminal::vte::ansi::NamedColor;
 
@@ -301,6 +311,112 @@ impl Terminal {
         }
         Some(line_texts.join("\n"))
     }
+
+    /// 在终端回滚历史与当前屏幕网格中搜索关键词。
+    pub fn search(&self, query: &str, case_sensitive: bool) -> Vec<SearchMatch> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+
+        let query_chars: Vec<char> = if case_sensitive {
+            trimmed.chars().collect()
+        } else {
+            trimmed.to_lowercase().chars().collect()
+        };
+        let query_len = query_chars.len();
+        if query_len == 0 {
+            return Vec::new();
+        }
+
+        let grid = self.term.grid();
+        let history = grid.history_size() as i32;
+        let screen = grid.screen_lines() as i32;
+        let cols = self.cols as usize;
+
+        let mut matches = Vec::new();
+
+        // 遍历所有历史行与当前屏幕行 (从最顶端的历史行 -history 到屏幕底端 screen - 1)
+        for actual_line in -history..screen {
+            let row = &grid[Line(actual_line)];
+
+            // 提取该行的字符及物理列映射
+            let mut line_chars = Vec::new();
+            let mut col_indices = Vec::new();
+
+            for c in 0..cols.min(row.len()) {
+                let cell = &row[Column(c)];
+                if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                if cell.flags.contains(alacritty_terminal::term::cell::Flags::HIDDEN) {
+                    continue;
+                }
+                line_chars.push(cell.c);
+                col_indices.push(c);
+            }
+
+            let search_chars: Vec<char> = if case_sensitive {
+                line_chars.clone()
+            } else {
+                let mut lower = Vec::with_capacity(line_chars.len());
+                for c in &line_chars {
+                    for lc in c.to_lowercase() {
+                        lower.push(lc);
+                    }
+                }
+                lower
+            };
+
+            if search_chars.len() < query_len {
+                continue;
+            }
+
+            for start_char in 0..=(search_chars.len() - query_len) {
+                if &search_chars[start_char..start_char + query_len] == query_chars.as_slice() {
+                    let end_char = start_char + query_len - 1;
+                    if start_char < col_indices.len() && end_char < col_indices.len() {
+                        let col_start = col_indices[start_char];
+                        let col_end_base = col_indices[end_char];
+
+                        let col_end = if end_char + 1 < col_indices.len() {
+                            col_indices[end_char + 1] - 1
+                        } else {
+                            (col_end_base + 1).min(cols - 1)
+                        };
+
+                        matches.push(SearchMatch {
+                            line: actual_line,
+                            col_start,
+                            col_end: col_end.max(col_start),
+                        });
+                    }
+                }
+            }
+        }
+
+        matches
+    }
+
+    /// 滚动视口使某个搜索匹配项呈现在屏幕可视区域中。
+    pub fn scroll_to_match(&mut self, m: &SearchMatch) {
+        let screen = self.term.grid().screen_lines() as i32;
+        let history = self.term.grid().history_size() as usize;
+
+        // 计算目标行相对屏幕的行号：row_idx = m.line + display_offset
+        // 我们希望目标行大致显示在屏幕中间偏上位置（比如 1/3 处）
+        let desired_screen_row = (screen / 3).max(0);
+        let target_display_offset = (desired_screen_row - m.line).clamp(0, history as i32) as usize;
+
+        self.term.scroll_display(alacritty_terminal::grid::Scroll::Top);
+        // 重置后滚动到 target_display_offset
+        let current = self.term.grid().display_offset();
+        if target_display_offset > current {
+            self.term.scroll_display(alacritty_terminal::grid::Scroll::Delta((target_display_offset - current) as i32));
+        } else if target_display_offset < current {
+            self.term.scroll_display(alacritty_terminal::grid::Scroll::Delta(-((current - target_display_offset) as i32)));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -411,6 +527,31 @@ mod tests {
             end: GridPoint { line: 0, col: 5 },
         });
         assert_eq!(t.selected_text().as_deref(), Some("line 2"));
+    }
+
+    #[test]
+    fn search_basic_and_case_sensitive() {
+        let mut t = Terminal::new(40, 5, TermThemeColors::default());
+        t.feed(b"Hello World\r\nhello Rust\r\nWORLD\r\n");
+
+        let matches_case_ins = t.search("world", false);
+        assert_eq!(matches_case_ins.len(), 2);
+        assert_eq!(matches_case_ins[0].line, 0);
+        assert_eq!(matches_case_ins[0].col_start, 6);
+        assert_eq!(matches_case_ins[0].col_end, 10);
+
+        let matches_case_sens = t.search("WORLD", true);
+        assert_eq!(matches_case_sens.len(), 1);
+        assert_eq!(matches_case_sens[0].line, 2);
+    }
+
+    #[test]
+    fn search_chinese_and_scrollback() {
+        let mut t = Terminal::new(40, 3, TermThemeColors::default());
+        t.feed("第一行 测试\r\n第二行 搜索\r\n第三行 测试\r\n第四行 终端\r\n".as_bytes());
+
+        let matches = t.search("测试", false);
+        assert_eq!(matches.len(), 2);
     }
 }
 

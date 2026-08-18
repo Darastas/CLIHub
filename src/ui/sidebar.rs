@@ -83,6 +83,8 @@ pub struct SidebarAction {
     pub edit: Option<usize>,
     /// 拖拽排序：(从哪个索引 → 放到哪个索引)
     pub move_to: Option<(usize, usize)>,
+    /// 切换全景多会话看板
+    pub toggle_overview: bool,
 }
 
 fn muted(dark: bool) -> Color32 {
@@ -113,7 +115,13 @@ const ROW_HEIGHT: f32 = 56.0;
 const ROW_SPACING: f32 = 4.0;
 const SLOT_STRIDE: f32 = ROW_HEIGHT + ROW_SPACING;
 
-pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::config::ThemeSettings) -> SidebarAction {
+pub fn show(
+    ui: &mut Ui,
+    sessions: &[Session],
+    selected: usize,
+    in_overview: bool,
+    theme: &crate::config::ThemeSettings,
+) -> SidebarAction {
     let mut action = SidebarAction::default();
 
     let dark = ui.visuals().dark_mode;
@@ -135,14 +143,20 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
         ui.ctx().request_repaint();
     }
 
-    // ---- SESSIONS 分区标题 + 新增按钮 ----
+    // ---- SESSIONS 分区标题 + 视图切换 + 新增按钮 ----
     ui.add_space(16.0);
     ui.horizontal(|ui| {
         ui.add_space(12.0); // SidePanel inner margin is 8.0, 8.0 + 12.0 = 20.0
         ui.label(RichText::new("SESSIONS").size(12.0).color(muted(dark)).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(12.0); // 从右侧往左加 12px 的边距，与卡片的右边缘对齐 (224.0 - 12.0 = 212.0)
+            ui.add_space(12.0); // 从右侧往左加 12px 的边距
+            
+            // ＋ 新增按钮
             let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+            ui.add_space(4.0);
+            // ⊞ 全景看板按钮
+            let (ov_rect, ov_resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+
             let is_plus_hovered = plus_resp.hovered();
             let plus_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_add_hover"), is_plus_hovered);
             
@@ -177,6 +191,42 @@ pub fn show(ui: &mut Ui, sessions: &[Session], selected: usize, theme: &crate::c
 
             if plus_resp.on_hover_text("Add a new CLI session").clicked() {
                 action.add = true;
+            }
+
+            // 绘制 ⊞ 全景看板按钮
+            let is_ov_hovered = ov_resp.hovered();
+            let ov_bg = if in_overview {
+                Color32::from_rgb(0, 111, 238)
+            } else if is_ov_hovered {
+                if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(16) }
+            } else {
+                if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) }
+            };
+            let ov_stroke = if in_overview {
+                Color32::from_rgb(0, 111, 238)
+            } else {
+                if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) }
+            };
+
+            p.rect_filled(ov_rect, 6.0, ov_bg);
+            p.rect_stroke(ov_rect, 6.0, egui::Stroke::new(0.5, ov_stroke), egui::StrokeKind::Inside);
+            let ov_fg = if in_overview {
+                Color32::WHITE
+            } else if is_ov_hovered {
+                if dark { Color32::WHITE } else { Color32::BLACK }
+            } else {
+                if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
+            };
+            p.text(
+                ov_rect.center(),
+                Align2::CENTER_CENTER,
+                "⊞",
+                FontId::new(13.0, egui::FontFamily::Proportional),
+                ov_fg,
+            );
+
+            if ov_resp.on_hover_text("Global Sessions Overview (Ctrl+Shift+O)").clicked() {
+                action.toggle_overview = true;
             }
         });
     });
