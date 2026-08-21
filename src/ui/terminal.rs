@@ -480,7 +480,7 @@ pub fn show(
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMEAllowed(true));
         }
 
-        handle_scroll(ui, tab, resp.hovered(), grid_rect);
+        handle_scroll(ui, tab, resp.hovered(), grid_rect, col_w, row_h);
 
         // 渲染网格
         if let Some(t) = &mut tab.terminal {
@@ -1122,7 +1122,14 @@ fn key_to_char(key: egui::Key) -> Option<char> {
     }
 }
 
-fn handle_scroll(ui: &mut Ui, tab: &mut TerminalInstance, hovered: bool, rect: Rect) {
+fn handle_scroll(
+    ui: &mut Ui,
+    tab: &mut TerminalInstance,
+    hovered: bool,
+    rect: Rect,
+    col_w: f32,
+    row_h: f32,
+) {
     let pointer_in = ui.input(|i| {
         i.pointer.latest_pos().map_or(false, |p| rect.contains(p))
     });
@@ -1143,7 +1150,93 @@ fn handle_scroll(ui: &mut Ui, tab: &mut TerminalInstance, hovered: bool, rect: R
     if lines != 0 {
         tab.scroll_accum -= (lines as f32) * pixels_per_line;
         if let Some(t) = &mut tab.terminal {
-            t.scroll_display(lines);
+            use alacritty_terminal::term::TermMode;
+            let mode = t.term.mode();
+            let has_mouse_report = mode.intersects(
+                TermMode::MOUSE_REPORT_CLICK
+                    | TermMode::MOUSE_DRAG
+                    | TermMode::MOUSE_MOTION
+                    | TermMode::MOUSE_MODE,
+            );
+            let in_alt_screen = mode.contains(TermMode::ALT_SCREEN);
+
+            if has_mouse_report {
+                // TUI 启用了鼠标协议（如 vim, htop, 现代 TUI 界面）
+                let pointer_pos = ui.input(|i| i.pointer.latest_pos()).unwrap_or(rect.min);
+                let rel_x = (pointer_pos.x - rect.min.x).max(0.0);
+                let rel_y = (pointer_pos.y - rect.min.y).max(0.0);
+                let col = ((rel_x / col_w) as usize + 1).min(t.cols as usize);
+                let row = ((rel_y / row_h) as usize + 1).min(t.rows as usize);
+
+                let count = lines.abs();
+                let is_up = lines > 0;
+                let mut bytes = Vec::new();
+
+                for _ in 0..count {
+                    if mode.contains(TermMode::SGR_MOUSE) {
+                        // SGR 模式: 向上 64, 向下 65
+                        let btn = if is_up { 64 } else { 65 };
+                        bytes.extend_from_slice(format!("\x1b[<{btn};{col};{row}M").as_bytes());
+                    } else if mode.contains(TermMode::UTF8_MOUSE) {
+                        let btn = if is_up { 64 } else { 65 };
+                        let mut buf = Vec::new();
+                        buf.extend_from_slice(b"\x1b[M");
+                        let b = 32 + btn;
+                        let c = 32 + col.min(2015);
+                        let r = 32 + row.min(2015);
+                        let mut char_buf = [0u8; 4];
+                        buf.extend_from_slice(char::from_u32(b as u32).unwrap_or(' ').encode_utf8(&mut char_buf).as_bytes());
+                        buf.extend_from_slice(char::from_u32(c as u32).unwrap_or(' ').encode_utf8(&mut char_buf).as_bytes());
+                        buf.extend_from_slice(char::from_u32(r as u32).unwrap_or(' ').encode_utf8(&mut char_buf).as_bytes());
+                        bytes.extend_from_slice(&buf);
+                    } else {
+                        // 标准 X10 鼠标协议
+                        let btn = if is_up { 64 } else { 65 };
+                        let b = (32 + btn).min(255) as u8;
+                        let c = (32 + col.min(223)) as u8;
+                        let r = (32 + row.min(223)) as u8;
+                        bytes.extend_from_slice(&[0x1b, b'[', b'M', b, c, r]);
+                    }
+                }
+
+                if !bytes.is_empty() {
+                    if let Some(pty) = &mut tab.pty {
+                        let _ = pty.write(&bytes);
+                    }
+                }
+            } else if in_alt_screen {
+                // TUI 处于备用屏幕 (如 opencode, mimocode, less, nano 等) 但未开启鼠标协议时：
+                // 工业级标准行为是将滚轮转换为光标上下箭头键（Alternate Screen Scroll），直接驱动 TUI 内容滚动！
+                let is_app_cursor = mode.contains(TermMode::APP_CURSOR);
+                let count = lines.abs();
+                let is_up = lines > 0;
+                let mut bytes = Vec::new();
+
+                for _ in 0..count {
+                    if is_up {
+                        if is_app_cursor {
+                            bytes.extend_from_slice(b"\x1bOA");
+                        } else {
+                            bytes.extend_from_slice(b"\x1b[A");
+                        }
+                    } else {
+                        if is_app_cursor {
+                            bytes.extend_from_slice(b"\x1bOB");
+                        } else {
+                            bytes.extend_from_slice(b"\x1b[B");
+                        }
+                    }
+                }
+
+                if !bytes.is_empty() {
+                    if let Some(pty) = &mut tab.pty {
+                        let _ = pty.write(&bytes);
+                    }
+                }
+            } else {
+                // 普通 Shell 终端屏幕：滚动 Scrollback 历史缓冲区
+                t.scroll_display(lines);
+            }
         }
     }
 }

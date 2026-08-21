@@ -173,8 +173,8 @@ pub struct Terminal {
     event_rx: Receiver<TerminalEvent>,
     size: Arc<Mutex<(usize, usize)>>,
     pub theme_colors: Arc<Mutex<TermThemeColors>>,
-    cols: u16,
-    rows: u16,
+    pub cols: u16,
+    pub rows: u16,
     pub selection: Option<SelectionRange>,
 }
 
@@ -552,6 +552,26 @@ mod tests {
 
         let matches = t.search("测试", false);
         assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
+    fn alternate_screen_and_mouse_modes() {
+        use alacritty_terminal::term::TermMode;
+        let mut t = Terminal::new(40, 10, TermThemeColors::default());
+        assert!(!t.term.mode().contains(TermMode::ALT_SCREEN));
+
+        // 进入 Alternate Screen 备用屏幕: \x1b[?1049h
+        t.feed(b"\x1b[?1049h");
+        assert!(t.term.mode().contains(TermMode::ALT_SCREEN));
+
+        // 开启 SGR 鼠标模式: \x1b[?1000h\x1b[?1006h
+        t.feed(b"\x1b[?1000h\x1b[?1006h");
+        assert!(t.term.mode().intersects(TermMode::MOUSE_MODE | TermMode::MOUSE_REPORT_CLICK));
+        assert!(t.term.mode().contains(TermMode::SGR_MOUSE));
+
+        // 退出备用屏幕: \x1b[?1049l
+        t.feed(b"\x1b[?1049l");
+        assert!(!t.term.mode().contains(TermMode::ALT_SCREEN));
     }
 }
 
