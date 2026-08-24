@@ -61,40 +61,98 @@ pub fn show(
         Color32::from_rgb(110, 120, 135)
     };
 
-    ui.add_space(14.0);
+    // ---- 顶部概览 Header（与侧边栏、标签栏 100% 绝对水平基准线对齐）----
+    ui.add_space(13.0);
 
-    // ---- 顶部概览 Header ----
-    ui.horizontal(|ui| {
-        ui.add_space(20.0);
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("⊞ 全景多会话看板 (Overview)")
-                        .font(FontId::proportional(17.5))
-                        .color(text_main)
-                        .strong(),
-                );
+    let (header_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
+    let row_center_y = header_rect.center().y;
+    let p = ui.painter();
+
+    // 1. 左侧 2x2 视窗矢量网格图标 + 标题
+    let icon_c = Pos2::new(header_rect.min.x + 20.0 + 8.0, row_center_y);
+    let cell_size = 4.4;
+    let gap = 1.6;
+    let offset = (cell_size + gap) / 2.0;
+    let cell_radius = 1.0;
+    let cell_stroke = egui::Stroke::new(1.15, text_main);
+
+    for dy in [-offset, offset] {
+        for dx in [-offset, offset] {
+            let cell_rect = Rect::from_center_size(icon_c + vec2(dx, dy), vec2(cell_size, cell_size));
+            p.rect_stroke(cell_rect, cell_radius, cell_stroke, egui::StrokeKind::Inside);
+        }
+    }
+
+    // 标题文本
+    p.text(
+        Pos2::new(icon_c.x + 14.0, row_center_y),
+        Align2::LEFT_CENTER,
+        "全景多会话看板",
+        FontId::new(15.0, egui::FontFamily::Proportional),
+        text_main,
+    );
+
+    // 统计微徽章胶囊 (Sleek Monospace / Frosted Stats Pill)
+    let running_count = sessions.iter().filter(|s| s.status() == SessionStatus::Running).count();
+    let total_tabs: usize = sessions.iter().map(|s| s.tabs.len()).sum();
+    let stats_text = format!("{} 会话 · {} 运行中 · {} 标签", sessions.len(), running_count, total_tabs);
+    let stats_font = FontId::new(11.5, egui::FontFamily::Proportional);
+    let stats_w = p.layout_no_wrap(stats_text.clone(), stats_font.clone(), Color32::WHITE).rect.width();
+
+    let stats_badge_w = stats_w + 16.0;
+    let stats_badge_rect = Rect::from_min_size(
+        Pos2::new(icon_c.x + 14.0 + 118.0, row_center_y - 11.0),
+        vec2(stats_badge_w, 22.0),
+    );
+    let badge_bg = if dark { Color32::from_white_alpha(7) } else { Color32::from_black_alpha(10) };
+    let badge_stroke = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) };
+    p.rect_filled(stats_badge_rect, 5.0, badge_bg);
+    p.rect_stroke(stats_badge_rect, 5.0, egui::Stroke::new(0.5, badge_stroke), egui::StrokeKind::Inside);
+    p.text(stats_badge_rect.center(), Align2::CENTER_CENTER, stats_text, stats_font, text_sub);
+
+    // 2. 右侧 ✕ 退出看板按钮（与 + 号 / 搜索栏按钮 100% 一致的微卡片）
+    let close_rect = Rect::from_center_size(Pos2::new(header_rect.max.x - 20.0 - 14.0, row_center_y), vec2(28.0, 28.0));
+    let close_resp = ui.interact(close_rect, egui::Id::new("overview_close_btn"), Sense::click());
+    let close_hf = ui.ctx().animate_bool(egui::Id::new("overview_close_h"), close_resp.hovered());
+
+    fn lerp_c(a: Color32, b: Color32, t: f32) -> Color32 {
+        Color32::from_rgba_premultiplied(
+            (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.a() as f32 * (1.0 - t) + b.a() as f32 * t).clamp(0.0, 255.0) as u8,
+        )
+    }
+
+    let btn_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let btn_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+    let btn_base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+    let btn_hover_stroke = if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(18) };
+    let btn_bg = lerp_c(btn_base, btn_hover, close_hf);
+    let btn_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, close_hf);
+
+    let p_c = ui.painter();
+    p_c.rect_filled(close_rect.translate(vec2(0.0, 1.0)), 7.0, if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) });
+    p_c.rect_filled(close_rect, 7.0, btn_bg);
+    p_c.rect_stroke(close_rect, 7.0, egui::Stroke::new(0.5, btn_stroke), egui::StrokeKind::Inside);
+
+    let close_fg = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, close_hf);
+    let c = close_rect.center();
+    let cd = 3.6;
+    p_c.line_segment([c + vec2(-cd, -cd), c + vec2(cd, cd)], egui::Stroke::new(1.35, close_fg));
+    p_c.line_segment([c + vec2(-cd, cd), c + vec2(cd, -cd)], egui::Stroke::new(1.35, close_fg));
+
+    if close_resp.on_hover_text("退出看板 (Esc)").clicked() {
+        if let Some(active_session) = sessions.iter().position(|s| s.status() == SessionStatus::Running).or(Some(0)) {
+            let active_tab = sessions.get(active_session).map_or(0, |s| s.active_tab);
+            action = Some(OverviewAction::SelectSessionTab {
+                session_idx: active_session,
+                tab_idx: active_tab,
             });
-            ui.add_space(2.0);
+        }
+    }
 
-            let running_count = sessions.iter().filter(|s| s.status() == SessionStatus::Running).count();
-            let total_tabs: usize = sessions.iter().map(|s| s.tabs.len()).sum();
-            ui.label(
-                egui::RichText::new(format!(
-                    "共 {} 个会话 · {} 个正在运行 · 活跃标签 {} 个 (点击卡片进入，右键卡片直接选择 Tab)",
-                    sessions.len(),
-                    running_count,
-                    total_tabs
-                ))
-                .font(FontId::proportional(12.0))
-                .color(text_sub),
-            );
-        });
-    });
-
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(10.0);
+    ui.add_space(14.0);
 
     // 计算主界面终端的标准长宽比（通常约为 1.45 ~ 1.65）
     let orig_font_id = FontId::new(term_theme.font_size, term_theme.font_family.clone());

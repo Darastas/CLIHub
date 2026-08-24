@@ -153,101 +153,115 @@ pub fn show(
         ui.ctx().request_repaint();
     }
 
-    // ---- SESSIONS 分区标题 + 视图切换 + 新增按钮 ----
-    ui.add_space(16.0);
-    ui.horizontal(|ui| {
-        ui.add_space(12.0); // SidePanel inner margin is 8.0, 8.0 + 12.0 = 20.0
-        ui.label(RichText::new("SESSIONS").size(12.0).color(muted(dark)).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(12.0); // 从右侧往左加 12px 的边距
-            
-            // ＋ 新增按钮
-            let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-            ui.add_space(4.0);
-            // ⊞ 全景看板按钮
-            let (ov_rect, ov_resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+    // ---- SESSIONS 分区标题 + 视图切换 + 新增按钮（与右侧 Tab 栏 100% 绝对水平基准线对齐）----
+    ui.add_space(13.0);
+    let (header_row_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
+    let row_center_y = header_row_rect.center().y;
 
-            let is_plus_hovered = plus_resp.hovered();
-            let plus_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_add_hover"), is_plus_hovered);
-            
-            let plus_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
-            let plus_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
-            let plus_bg = Color32::from_rgba_premultiplied(
-                (plus_base.r() as f32 * (1.0 - plus_hover_factor) + plus_hover.r() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
-                (plus_base.g() as f32 * (1.0 - plus_hover_factor) + plus_hover.g() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
-                (plus_base.b() as f32 * (1.0 - plus_hover_factor) + plus_hover.b() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
-                (plus_base.a() as f32 * (1.0 - plus_hover_factor) + plus_hover.a() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
-            );
-            let plus_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
-            
-            let p = ui.painter();
-            let plus_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
-            p.rect_filled(plus_rect.translate(vec2(0.0, 1.5)), 6.0, plus_shadow);
-            p.rect_filled(plus_rect, 6.0, plus_bg);
-            p.rect_stroke(plus_rect, 6.0, egui::Stroke::new(0.5, plus_stroke), egui::StrokeKind::Inside);
-            
-            let plus_fg = if is_plus_hovered {
-                if dark { Color32::WHITE } else { Color32::BLACK }
-            } else {
-                if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
-            };
-            p.text(
-                plus_rect.center(),
-                Align2::CENTER_CENTER,
-                "＋",
-                FontId::new(12.0, egui::FontFamily::Proportional),
-                plus_fg,
-            );
+    // 1. SESSIONS 标题：绝对垂直居中对齐水平中心线
+    let p = ui.painter();
+    p.text(
+        Pos2::new(header_row_rect.min.x + 12.0, row_center_y),
+        Align2::LEFT_CENTER,
+        "SESSIONS",
+        FontId::new(12.0, egui::FontFamily::Proportional),
+        muted(dark),
+    );
 
-            if plus_resp.on_hover_text("Add a new CLI session").clicked() {
-                action.add = true;
-            }
+    // 2. ＋ 新增按钮（右侧边缘留 12px 边距，垂直严格对齐水平中心线）
+    let plus_center = Pos2::new(header_row_rect.max.x - 12.0 - 12.0, row_center_y);
+    let plus_rect = Rect::from_center_size(plus_center, vec2(24.0, 24.0));
+    let plus_resp = ui.interact(plus_rect, Id::new("sidebar_add_btn"), Sense::click());
 
-            // 绘制 ⊞ 全景看板按钮（与 Sessions 选中卡片及 ＋ 按钮风格 100% 统一）
-            let is_ov_hovered = ov_resp.hovered();
-            let ov_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_ov_hover"), is_ov_hovered && !in_overview);
-            let ov_sel_factor = ui.ctx().animate_bool(Id::new("sidebar_ov_sel"), in_overview);
+    let is_plus_hovered = plus_resp.hovered();
+    let plus_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_add_hover"), is_plus_hovered);
+    
+    let plus_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let plus_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+    let plus_bg = Color32::from_rgba_premultiplied(
+        (plus_base.r() as f32 * (1.0 - plus_hover_factor) + plus_hover.r() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+        (plus_base.g() as f32 * (1.0 - plus_hover_factor) + plus_hover.g() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+        (plus_base.b() as f32 * (1.0 - plus_hover_factor) + plus_hover.b() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+        (plus_base.a() as f32 * (1.0 - plus_hover_factor) + plus_hover.a() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
+    );
+    let plus_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+    
+    let plus_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+    p.rect_filled(plus_rect.translate(vec2(0.0, 1.5)), 6.0, plus_shadow);
+    p.rect_filled(plus_rect, 6.0, plus_bg);
+    p.rect_stroke(plus_rect, 6.0, egui::Stroke::new(0.5, plus_stroke), egui::StrokeKind::Inside);
+    
+    let plus_fg = if is_plus_hovered {
+        if dark { Color32::WHITE } else { Color32::BLACK }
+    } else {
+        if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
+    };
+    p.text(
+        plus_rect.center(),
+        Align2::CENTER_CENTER,
+        "＋",
+        FontId::new(12.0, egui::FontFamily::Proportional),
+        plus_fg,
+    );
 
-            let ov_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
-            let ov_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
-            let ov_sel = if dark { 
-                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50)
-            } else { 
-                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 30)
-            };
+    if plus_resp.on_hover_text("Add a new CLI session").clicked() {
+        action.add = true;
+    }
 
-            let ov_bg = lerp_color(lerp_color(ov_base, ov_hover, ov_hover_factor), ov_sel, ov_sel_factor);
+    // 3. ⊞ 全景看板按钮（紧挨 ＋ 按钮左侧 4px，垂直严格居中，高精度矢量 2x2 网格保证 100% 居中无字体偏差）
+    let ov_center = Pos2::new(plus_center.x - 24.0 - 4.0, row_center_y);
+    let ov_rect = Rect::from_center_size(ov_center, vec2(24.0, 24.0));
+    let ov_resp = ui.interact(ov_rect, Id::new("sidebar_ov_btn"), Sense::click());
 
-            let ov_stroke_normal = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
-            let ov_stroke_sel = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.6);
-            let ov_stroke = lerp_color(ov_stroke_normal, ov_stroke_sel, ov_sel_factor);
+    let is_ov_hovered = ov_resp.hovered();
+    let ov_hover_factor = ui.ctx().animate_bool(Id::new("sidebar_ov_hover"), is_ov_hovered && !in_overview);
+    let ov_sel_factor = ui.ctx().animate_bool(Id::new("sidebar_ov_sel"), in_overview);
 
-            let ov_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
-            p.rect_filled(ov_rect.translate(vec2(0.0, 1.5)), 6.0, ov_shadow);
-            p.rect_filled(ov_rect, 6.0, ov_bg);
-            p.rect_stroke(ov_rect, 6.0, egui::Stroke::new(0.5, ov_stroke), egui::StrokeKind::Inside);
+    let ov_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let ov_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+    let ov_sel = if dark { 
+        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50)
+    } else { 
+        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 30)
+    };
 
-            let ov_fg_normal = if is_ov_hovered {
-                if dark { Color32::WHITE } else { Color32::BLACK }
-            } else {
-                if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
-            };
-            let ov_fg_sel = if dark { Color32::WHITE } else { Color32::BLACK };
-            let ov_fg = lerp_color(ov_fg_normal, ov_fg_sel, ov_sel_factor);
+    let ov_bg = lerp_color(lerp_color(ov_base, ov_hover, ov_hover_factor), ov_sel, ov_sel_factor);
 
-            p.text(
-                ov_rect.center(),
-                Align2::CENTER_CENTER,
-                "⊞",
-                FontId::new(12.0, egui::FontFamily::Proportional),
-                ov_fg,
-            );
+    let ov_stroke_normal = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+    let ov_stroke_sel = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.6);
+    let ov_stroke = lerp_color(ov_stroke_normal, ov_stroke_sel, ov_sel_factor);
 
-            if ov_resp.on_hover_text("Global Sessions Overview (Ctrl+Shift+O)").clicked() {
-                action.toggle_overview = true;
-            }
-        });
-    });
+    let ov_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+    p.rect_filled(ov_rect.translate(vec2(0.0, 1.5)), 6.0, ov_shadow);
+    p.rect_filled(ov_rect, 6.0, ov_bg);
+    p.rect_stroke(ov_rect, 6.0, egui::Stroke::new(0.5, ov_stroke), egui::StrokeKind::Inside);
+
+    let ov_fg_normal = if is_ov_hovered {
+        if dark { Color32::WHITE } else { Color32::BLACK }
+    } else {
+        if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
+    };
+    let ov_fg_sel = if dark { Color32::WHITE } else { Color32::BLACK };
+    let ov_fg = lerp_color(ov_fg_normal, ov_fg_sel, ov_sel_factor);
+
+    // 高精度几何矢量居中绘制 ⊞（4个对称微圆角卡片，绝对居中，无任何穿帮溢出）
+    let c = ov_rect.center();
+    let cell_size = 4.2;
+    let gap = 1.6;
+    let offset = (cell_size + gap) / 2.0;
+    let cell_radius = 1.0;
+    let cell_stroke = egui::Stroke::new(1.1, ov_fg);
+
+    for dy in [-offset, offset] {
+        for dx in [-offset, offset] {
+            let cell_rect = Rect::from_center_size(c + vec2(dx, dy), vec2(cell_size, cell_size));
+            p.rect_stroke(cell_rect, cell_radius, cell_stroke, egui::StrokeKind::Inside);
+        }
+    }
+
+    if ov_resp.on_hover_text("Global Sessions Overview (Ctrl+Shift+O)").clicked() {
+        action.toggle_overview = true;
+    }
 
     if sessions.is_empty() {
         ui.add_space(8.0);

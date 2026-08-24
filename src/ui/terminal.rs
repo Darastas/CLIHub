@@ -333,11 +333,10 @@ pub fn show(
                 let expand_factor = raw_expand_t * raw_expand_t * (3.0 - 2.0 * raw_expand_t);
 
                 let collapsed_w = 34.0;
-                let expanded_w = 340.0;
+                let expanded_w = 327.0;
                 let current_w = egui::lerp(collapsed_w..=expanded_w, expand_factor);
                 let (search_rect, search_resp) = ui.allocate_exact_size(vec2(current_w, 34.0), Sense::click());
 
-                let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
                 let is_hovered = search_resp.hovered() && !is_search_open;
                 let bar_hover_factor = ui.ctx().animate_bool(Id::new(("search_tab_hover", session.id)), is_hovered);
 
@@ -350,30 +349,19 @@ pub fn show(
                     )
                 }
 
-                // 100% 呼应 Tab 卡片与 + 按钮的色彩架构（完美统一紫/主题色调与微光反馈）
+                // 外层搜索框底座：纯净高质感中性磨砂亚克力（告别大面积紫色染色，回归高级黑灰微透与柔和发丝微边框）
                 let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
                 let hover_color = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
-                let active_tab_color = if dark { 
-                    Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 42)
-                } else { 
-                    Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 26)
-                };
-                let search_bg = lerp_c(lerp_c(base_color, hover_color, bar_hover_factor), active_tab_color, expand_factor);
+                let search_bg = lerp_c(base_color, hover_color, bar_hover_factor);
 
                 // 发丝级微边框
                 let base_stroke = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(10) };
                 let hover_stroke = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(18) };
-                let active_tab_stroke = Color32::from_rgba_unmultiplied(
-                    custom_color[0],
-                    custom_color[1],
-                    custom_color[2],
-                    if dark { 45 } else { 35 },
-                );
-                let search_stroke = lerp_c(lerp_c(base_stroke, hover_stroke, bar_hover_factor), active_tab_stroke, expand_factor);
+                let search_stroke = lerp_c(base_stroke, hover_stroke, bar_hover_factor);
 
                 let p = ui.painter().with_clip_rect(search_rect);
-                // 长卡片专用柔和沉浸式投影 (与活跃 Tab 阴影完全对齐)
-                let shadow_alpha = (if dark { 60.0 } else { 15.0 } * (1.0 + bar_hover_factor * 0.2 + expand_factor * 0.45)) as u8;
+                // 长卡片专用沉浸式柔和中性投影
+                let shadow_alpha = (if dark { 50.0 } else { 12.0 } * (1.0 + bar_hover_factor * 0.2 + expand_factor * 0.25)) as u8;
                 p.rect_filled(search_rect.translate(vec2(0.0, 1.5)), 12.0, Color32::from_black_alpha(shadow_alpha));
                 p.rect_filled(search_rect, 12.0, search_bg);
                 p.rect_stroke(search_rect, 12.0, egui::Stroke::new(0.5, search_stroke), egui::StrokeKind::Inside);
@@ -427,6 +415,7 @@ pub fn show(
                             .max_rect(inner_rect)
                             .layout(egui::Layout::left_to_right(egui::Align::Center)),
                     );
+                    child_ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
 
                     // 高亮度按键前景色（100% 对齐旁边活跃标签 Terminal 1 的纯正白色文字）
                     let text_main = if dark { Color32::WHITE } else { Color32::from_rgb(30, 35, 45) };
@@ -438,8 +427,8 @@ pub fn show(
                         let mut go_next = false;
                         let mut close_bar = false;
 
-                        // 1) 搜索输入框（绝对垂直居中：高度 24px，上下间距精确各 5.0px）
-                        let capsule_w = egui::lerp(20.0..=115.0, inner_alpha);
+                        // 1) 搜索输入框（绝对垂直居中：高度 24px）
+                        let capsule_w = egui::lerp(20.0..=120.0, inner_alpha);
                         let (capsule_rect, _) = child_ui.allocate_exact_size(vec2(capsule_w, 24.0), Sense::hover());
                         
                         let edit_id = child_ui.id().with("find_input");
@@ -472,17 +461,13 @@ pub fn show(
                         let is_input_focused = edit_resp.has_focus();
                         let focus_factor = child_ui.ctx().animate_bool(Id::new(("find_focus_ring", session.id)), is_input_focused);
 
-                        // 输入框胶囊背景与点击发光外框（圆角 6px，绝对上下居中）
-                        let capsule_bg = lerp_c(
-                            if dark { Color32::from_black_alpha(45) } else { Color32::from_black_alpha(10) },
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 35 } else { 18 }),
-                            focus_factor,
-                        );
-                        let capsule_stroke = lerp_c(
-                            if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) },
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 140 } else { 100 }),
-                            focus_factor,
-                        );
+                        // 输入框胶囊背景与点击发光外框：纯净高级黑灰微透质感，聚焦时平滑高亮微光边框
+                        let capsule_rest_bg = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(10) };
+                        let capsule_focus_bg = if dark { Color32::from_black_alpha(80) } else { Color32::from_black_alpha(18) };
+                        let capsule_rest_stroke = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) };
+                        let capsule_focus_stroke = if dark { Color32::from_white_alpha(45) } else { Color32::from_black_alpha(40) };
+                        let capsule_bg = lerp_c(capsule_rest_bg, capsule_focus_bg, focus_factor);
+                        let capsule_stroke = lerp_c(capsule_rest_stroke, capsule_focus_stroke, focus_factor);
                         child_ui.painter().rect_filled(capsule_rect, 6.0, capsule_bg);
                         child_ui.painter().rect_stroke(capsule_rect, 6.0, egui::Stroke::new(0.65, capsule_stroke), egui::StrokeKind::Inside);
 
@@ -502,7 +487,7 @@ pub fn show(
                             }
                         }
 
-                        child_ui.add_space(4.0);
+                        child_ui.add_space(6.0);
 
                         // 2) 全新重构的高级微透计数徽章 (Match Counter Pill)
                         let total_matches = tab.search_state.matches.len();
@@ -511,17 +496,17 @@ pub fn show(
                         let count_text = format!("{current_idx}/{total_matches}");
 
                         let (badge_bg, badge_stroke, badge_fg) = if total_matches == 0 && has_query {
-                            // 搜无结果：高级绯红微晶光晕
+                            // 搜无结果：柔和绯红微晶光晕
                             (
                                 Color32::from_rgba_unmultiplied(225, 55, 45, 28),
                                 Color32::from_rgba_unmultiplied(235, 75, 65, 75),
                                 Color32::from_rgb(255, 120, 110),
                             )
                         } else if total_matches > 0 {
-                            // 搜索命中：融入活跃标签卡片的主题微光
+                            // 搜索命中：纯净高亮微透白光
                             (
-                                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 40 } else { 25 }),
-                                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 90 } else { 60 }),
+                                if dark { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(14) },
+                                if dark { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(20) },
                                 Color32::WHITE,
                             )
                         } else {
@@ -539,91 +524,108 @@ pub fn show(
                         p_b.rect_stroke(badge_rect, 5.0, egui::Stroke::new(0.5, badge_stroke), egui::StrokeKind::Inside);
                         p_b.text(badge_rect.center(), Align2::CENTER_CENTER, count_text, FontId::new(11.0, egui::FontFamily::Monospace), badge_fg);
 
-                        child_ui.add_space(3.0);
+                        child_ui.add_space(6.0);
 
                         // 3) 发丝级垂直微分割线（绝对垂直居中，高度 14px）
                         let (sep_rect, _) = child_ui.allocate_exact_size(vec2(1.0, 14.0), Sense::hover());
                         child_ui.painter().rect_filled(sep_rect, 0.0, if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) });
 
-                        child_ui.add_space(3.0);
+                        child_ui.add_space(6.0);
 
-                        // 4) ▲ 上一个按钮（高亮度矢量 Chevron，绝对垂直居中高度 22px）
-                        let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                        // 通用按键样式常量（100% 照搬 + 号与主界面按键的代码与视觉算法）
+                        let btn_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+                        let btn_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+                        let btn_base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+                        let btn_hover_stroke = if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(18) };
+                        let btn_shadow = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) };
+
+                        // 4) ▲ 上一个按钮（100% 主按键卡片结构：微投影 + 双态底色 + 微边框 + 矢量微图标，标准 24x24 尺寸）
+                        let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                         let prev_hf = child_ui.ctx().animate_bool(Id::new(("find_prev_h", session.id)), prev_resp.hovered());
-                        let prev_bg = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (prev_hf * (if dark { 45.0 } else { 30.0 })) as u8);
-                        let prev_stroke = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (prev_hf * (if dark { 80.0 } else { 55.0 })) as u8);
-                        if prev_bg.a() > 0 {
-                            child_ui.painter().rect_filled(prev_rect, 6.0, prev_bg);
-                            child_ui.painter().rect_stroke(prev_rect, 6.0, egui::Stroke::new(0.5, prev_stroke), egui::StrokeKind::Inside);
-                        }
-                        let prev_c = lerp_c(text_sub, Color32::WHITE, prev_hf);
+                        let prev_bg = lerp_c(btn_base, btn_hover, prev_hf);
+                        let prev_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, prev_hf);
+                        let prev_p = child_ui.painter();
+                        prev_p.rect_filled(prev_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+                        prev_p.rect_filled(prev_rect, 7.0, prev_bg);
+                        prev_p.rect_stroke(prev_rect, 7.0, egui::Stroke::new(0.5, prev_stroke), egui::StrokeKind::Inside);
+                        
+                        let prev_c = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, prev_hf);
                         let c = prev_rect.center();
-                        child_ui.painter().line_segment([c + vec2(-3.5, 1.5), c + vec2(0.0, -2.5)], egui::Stroke::new(1.35, prev_c));
-                        child_ui.painter().line_segment([c + vec2(0.0, -2.5), c + vec2(3.5, 1.5)], egui::Stroke::new(1.35, prev_c));
+                        prev_p.line_segment([c + vec2(-3.5, 1.5), c + vec2(0.0, -2.5)], egui::Stroke::new(1.35, prev_c));
+                        prev_p.line_segment([c + vec2(0.0, -2.5), c + vec2(3.5, 1.5)], egui::Stroke::new(1.35, prev_c));
                         if prev_resp.on_hover_text("Previous match (Shift+Enter)").clicked() {
                             go_prev = true;
                         }
 
-                        // 5) ▼ 下一个按钮（高亮度矢量 Chevron，绝对垂直居中高度 22px）
-                        let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                        child_ui.add_space(4.0);
+
+                        // 5) ▼ 下一个按钮（100% 主按键卡片结构：微投影 + 双态底色 + 微边框 + 矢量微图标，标准 24x24 尺寸）
+                        let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                         let next_hf = child_ui.ctx().animate_bool(Id::new(("find_next_h", session.id)), next_resp.hovered());
-                        let next_bg = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (next_hf * (if dark { 45.0 } else { 30.0 })) as u8);
-                        let next_stroke = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (next_hf * (if dark { 80.0 } else { 55.0 })) as u8);
-                        if next_bg.a() > 0 {
-                            child_ui.painter().rect_filled(next_rect, 6.0, next_bg);
-                            child_ui.painter().rect_stroke(next_rect, 6.0, egui::Stroke::new(0.5, next_stroke), egui::StrokeKind::Inside);
-                        }
-                        let next_c = lerp_c(text_sub, Color32::WHITE, next_hf);
+                        let next_bg = lerp_c(btn_base, btn_hover, next_hf);
+                        let next_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, next_hf);
+                        let next_p = child_ui.painter();
+                        next_p.rect_filled(next_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+                        next_p.rect_filled(next_rect, 7.0, next_bg);
+                        next_p.rect_stroke(next_rect, 7.0, egui::Stroke::new(0.5, next_stroke), egui::StrokeKind::Inside);
+                        
+                        let next_c = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, next_hf);
                         let c = next_rect.center();
-                        child_ui.painter().line_segment([c + vec2(-3.5, -2.0), c + vec2(0.0, 2.0)], egui::Stroke::new(1.35, next_c));
-                        child_ui.painter().line_segment([c + vec2(0.0, 2.0), c + vec2(3.5, -2.0)], egui::Stroke::new(1.35, next_c));
+                        next_p.line_segment([c + vec2(-3.5, -2.0), c + vec2(0.0, 2.0)], egui::Stroke::new(1.35, next_c));
+                        next_p.line_segment([c + vec2(0.0, 2.0), c + vec2(3.5, -2.0)], egui::Stroke::new(1.35, next_c));
                         if next_resp.on_hover_text("Next match (Enter)").clicked() {
                             go_next = true;
                         }
 
-                        // 6) Aa 大小写切换按钮
+                        child_ui.add_space(4.0);
+
+                        // 6) Aa 大小写切换按钮（100% 主按键卡片结构，标准 26x24 尺寸）
                         let is_case = tab.search_state.case_sensitive;
-                        let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
+                        let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
                         let case_hf = child_ui.ctx().animate_bool(Id::new(("find_case_h", session.id)), case_resp.hovered());
                         let case_bg = if is_case {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 75 } else { 50 })
+                            if dark { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(22) }
                         } else {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (case_hf * (if dark { 45.0 } else { 30.0 })) as u8)
+                            lerp_c(btn_base, btn_hover, case_hf)
                         };
                         let case_stroke = if is_case {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 130 } else { 95 })
+                            if dark { Color32::from_white_alpha(48) } else { Color32::from_black_alpha(35) }
                         } else {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (case_hf * (if dark { 80.0 } else { 55.0 })) as u8)
+                            lerp_c(btn_base_stroke, btn_hover_stroke, case_hf)
                         };
+                        let case_p = child_ui.painter();
+                        case_p.rect_filled(case_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+                        case_p.rect_filled(case_rect, 7.0, case_bg);
+                        case_p.rect_stroke(case_rect, 7.0, egui::Stroke::new(0.5, case_stroke), egui::StrokeKind::Inside);
+                        
                         let case_fg = if is_case {
-                            if dark { Color32::WHITE } else { Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]) }
+                            Color32::WHITE
                         } else {
-                            lerp_c(text_sub, Color32::WHITE, case_hf)
+                            lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, case_hf)
                         };
-                        if case_bg.a() > 0 {
-                            child_ui.painter().rect_filled(case_rect, 6.0, case_bg);
-                            child_ui.painter().rect_stroke(case_rect, 6.0, egui::Stroke::new(0.5, case_stroke), egui::StrokeKind::Inside);
-                        }
-                        child_ui.painter().text(case_rect.center(), Align2::CENTER_CENTER, "Aa", FontId::new(11.5, egui::FontFamily::Proportional), case_fg);
+                        case_p.text(case_rect.center(), Align2::CENTER_CENTER, "Aa", FontId::new(11.5, egui::FontFamily::Proportional), case_fg);
                         if case_resp.on_hover_text("Match Case").clicked() {
                             tab.search_state.case_sensitive = !tab.search_state.case_sensitive;
                             execute_search = true;
                         }
 
-                        // 7) ✕ 关闭按钮（纯净白光与平滑主题微光）
-                        let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                        child_ui.add_space(4.0);
+
+                        // 7) ✕ 关闭按钮（100% 主按键卡片结构，标准 24x24 尺寸）
+                        let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                         let close_hf = child_ui.ctx().animate_bool(Id::new(("find_close_h", session.id)), close_resp.hovered());
-                        let close_bg = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (close_hf * (if dark { 45.0 } else { 30.0 })) as u8);
-                        let close_stroke = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (close_hf * (if dark { 80.0 } else { 55.0 })) as u8);
-                        if close_bg.a() > 0 {
-                            child_ui.painter().rect_filled(close_rect, 6.0, close_bg);
-                            child_ui.painter().rect_stroke(close_rect, 6.0, egui::Stroke::new(0.5, close_stroke), egui::StrokeKind::Inside);
-                        }
-                        let close_color = lerp_c(text_sub, Color32::WHITE, close_hf);
+                        let close_bg = lerp_c(btn_base, btn_hover, close_hf);
+                        let close_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, close_hf);
+                        let close_p = child_ui.painter();
+                        close_p.rect_filled(close_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+                        close_p.rect_filled(close_rect, 7.0, close_bg);
+                        close_p.rect_stroke(close_rect, 7.0, egui::Stroke::new(0.5, close_stroke), egui::StrokeKind::Inside);
+                        
+                        let close_color = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, close_hf);
                         let c_center = close_rect.center();
                         let cd = 3.2;
-                        child_ui.painter().line_segment([c_center + vec2(-cd, -cd), c_center + vec2(cd, cd)], egui::Stroke::new(1.35, close_color));
-                        child_ui.painter().line_segment([c_center + vec2(-cd, cd), c_center + vec2(cd, -cd)], egui::Stroke::new(1.35, close_color));
+                        close_p.line_segment([c_center + vec2(-cd, -cd), c_center + vec2(cd, cd)], egui::Stroke::new(1.35, close_color));
+                        close_p.line_segment([c_center + vec2(-cd, cd), c_center + vec2(cd, -cd)], egui::Stroke::new(1.35, close_color));
                         if close_resp.on_hover_text("Close (Esc)").clicked() {
                             close_bar = true;
                         }
@@ -931,49 +933,55 @@ pub fn show(
             }
         }
 
-        // 渲染双击 Ctrl+C 防误触浮动提示条
+        // 渲染双击 Ctrl+C 防误触浮动提示条（高级半透明毛玻璃质感，文字完全居中，停留时间延长容错）
         if let Some(last) = tab.last_ctrl_c {
             let elapsed_ms = last.elapsed().as_millis();
-            if elapsed_ms <= 1000 {
-                let remaining_ratio = 1.0 - (elapsed_ms as f32 / 1000.0).clamp(0.0, 1.0);
-                let alpha = (remaining_ratio * 255.0) as u8;
+            const CTRL_C_TIMEOUT_MS: u128 = 1800;
+            if elapsed_ms <= CTRL_C_TIMEOUT_MS {
+                // 前 1000ms 保持稳定清晰呈现，后 800ms 优雅淡出
+                let fade_t = if elapsed_ms < 1000 {
+                    1.0
+                } else {
+                    1.0 - ((elapsed_ms - 1000) as f32 / 800.0).clamp(0.0, 1.0)
+                };
+                let alpha = (fade_t * 255.0) as u8;
 
-                let hud_w = 260.0;
+                let hud_w = 220.0;
                 let hud_h = 32.0;
                 let hud_rect = Rect::from_center_size(
-                    Pos2::new(term_rect.center().x, term_rect.max.y - 28.0),
+                    Pos2::new(term_rect.center().x, term_rect.max.y - 30.0),
                     vec2(hud_w, hud_h),
                 );
 
                 let p = ui.painter().with_clip_rect(term_rect);
-                // 投影
-                p.rect_filled(hud_rect.translate(vec2(0.0, 2.0)), 16.0, Color32::from_black_alpha((alpha as f32 * 0.4) as u8));
-                // 底色
+                // 1) 柔和下沉中性投影
+                p.rect_filled(hud_rect.translate(vec2(0.0, 2.0)), 16.0, Color32::from_black_alpha((alpha as f32 * 0.45) as u8));
+                // 2) 高级半透明暗色磨砂玻璃底色（Acrylic / Frosted Glass）
                 let hud_bg = if dark {
-                    Color32::from_rgba_premultiplied(35, 38, 48, alpha)
+                    Color32::from_rgba_unmultiplied(20, 22, 28, (alpha as f32 * 0.85) as u8)
                 } else {
-                    Color32::from_rgba_premultiplied(240, 243, 250, alpha)
+                    Color32::from_rgba_unmultiplied(250, 252, 255, (alpha as f32 * 0.90) as u8)
                 };
                 p.rect_filled(hud_rect, 16.0, hud_bg);
-                // 边框
+                // 3) 发丝级极细微边框（与全软件主按键一致）
                 let hud_stroke = if dark {
-                    Color32::from_rgba_premultiplied(220, 160, 40, (alpha as f32 * 0.8) as u8)
+                    Color32::from_white_alpha((alpha as f32 * 0.16) as u8)
                 } else {
-                    Color32::from_rgba_premultiplied(200, 140, 30, (alpha as f32 * 0.8) as u8)
+                    Color32::from_black_alpha((alpha as f32 * 0.14) as u8)
                 };
-                p.rect_stroke(hud_rect, 16.0, egui::Stroke::new(1.0, hud_stroke), egui::StrokeKind::Inside);
+                p.rect_stroke(hud_rect, 16.0, egui::Stroke::new(0.5, hud_stroke), egui::StrokeKind::Inside);
 
-                // 提示文字
+                // 4) 纯净高亮文字（绝对居中对齐，无指示灯）
                 let text_color = if dark {
-                    Color32::from_rgba_premultiplied(250, 220, 120, alpha)
+                    Color32::from_rgba_unmultiplied(240, 243, 250, alpha)
                 } else {
-                    Color32::from_rgba_premultiplied(160, 90, 0, alpha)
+                    Color32::from_rgba_unmultiplied(30, 35, 45, alpha)
                 };
                 p.text(
                     hud_rect.center(),
                     Align2::CENTER_CENTER,
-                    "⚠️ 再按一次 Ctrl+C 终止/退出",
-                    FontId::proportional(12.5),
+                    "再按一次 Ctrl+C 终止/退出",
+                    FontId::new(12.5, egui::FontFamily::Proportional),
                     text_color,
                 );
 
@@ -1467,10 +1475,10 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                     }
                 }
 
-                // 2) 无选区：执行双击 Ctrl+C 防误触中断保护 (1秒内连按两次才发送 SIGINT)
+                // 2) 无选区：执行双击 Ctrl+C 防误触中断保护 (1.8秒内连按两次才发送 SIGINT)
                 let now = std::time::Instant::now();
                 let is_double_press = if let Some(last) = tab.last_ctrl_c {
-                    now.duration_since(last).as_millis() <= 1000
+                    now.duration_since(last).as_millis() <= 1800
                 } else {
                     false
                 };
@@ -1480,7 +1488,7 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                     out.extend_from_slice(b"\x03"); // 发送 SIGINT (^C)
                 } else {
                     tab.last_ctrl_c = Some(now);
-                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(1000));
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(1800));
                 }
             }
             egui::Event::Paste(text) => out.extend_from_slice(text.as_bytes()),
@@ -1531,10 +1539,10 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                         }
                     }
 
-                    // 2) 无选区：执行双击 Ctrl+C 判定 (1秒内连续按两次才真正中断)
+                    // 2) 无选区：执行双击 Ctrl+C 判定 (1.8秒内连续按两次才真正中断)
                     let now = std::time::Instant::now();
                     let is_double_press = if let Some(last) = tab.last_ctrl_c {
-                        now.duration_since(last).as_millis() <= 1000
+                        now.duration_since(last).as_millis() <= 1800
                     } else {
                         false
                     };
@@ -1544,7 +1552,7 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                         out.extend_from_slice(b"\x03"); // 发送 SIGINT (^C)
                     } else {
                         tab.last_ctrl_c = Some(now);
-                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(1000));
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(1800));
                     }
                     continue;
                 }
