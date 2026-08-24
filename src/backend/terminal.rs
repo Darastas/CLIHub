@@ -19,7 +19,8 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GridPoint {
-    pub line: usize,
+    /// 实际网格缓冲区行号（Line(-history_size)..Line(screen_lines - 1)）
+    pub line: i32,
     pub col: usize,
 }
 
@@ -276,24 +277,47 @@ impl Terminal {
         }
         
         let grid = self.term.grid();
-        let display_offset = grid.display_offset();
         let history = grid.history_size() as i32;
         let screen = grid.screen_lines() as i32;
         
         let mut line_texts = Vec::new();
-        for l in start_line..=end_line {
-            let actual_line = l as i32 - display_offset as i32;
+        for actual_line in start_line..=end_line {
             if actual_line < -history || actual_line >= screen {
                 continue;
             }
             let row = &grid[Line(actual_line)];
             
-            let sc = if l == start_line { start_col } else { 0 };
-            let ec = if l == end_line { end_col } else { self.cols as usize - 1 };
+            // 动态计算当前行真实文本内容的末尾列
+            let mut content_end = 0;
+            for col in 0..self.cols as usize {
+                if col >= row.len() { break; }
+                let cell = &row[Column(col)];
+                if cell.c != ' ' && !cell.flags.contains(alacritty_terminal::term::cell::Flags::HIDDEN) {
+                    let w = if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR) { 2 } else { 1 };
+                    content_end = (col + w).min(self.cols as usize);
+                }
+            }
+
+            let (sc, ec) = if start_line == end_line {
+                (start_col, (end_col + 1).min(content_end))
+            } else if actual_line == start_line {
+                (start_col, content_end)
+            } else if actual_line == end_line {
+                (0, (end_col + 1).min(content_end))
+            } else {
+                (0, content_end)
+            };
+
+            if sc >= ec {
+                if start_line != end_line && actual_line != end_line {
+                    line_texts.push(String::new());
+                }
+                continue;
+            }
             
             let mut line_str = String::new();
             let mut trailing_spaces = 0;
-            for c in sc..=ec {
+            for c in sc..ec {
                 if c >= row.len() { break; }
                 let cell = &row[Column(c)];
                 if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) { continue; }
@@ -340,57 +364,49 @@ impl Terminal {
         for actual_line in -history..screen {
             let row = &grid[Line(actual_line)];
 
-            // 提取该行的字符及物理列映射
-            let mut line_chars = Vec::new();
+            // 提取该行字符与列索引映射 (跳过宽字符占位符)
+            let mut chars = Vec::new();
             let mut col_indices = Vec::new();
 
-            for c in 0..cols.min(row.len()) {
-                let cell = &row[Column(c)];
+            for col in 0..cols {
+                if col >= row.len() {
+                    break;
+                }
+                let cell = &row[Column(col)];
                 if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER) {
                     continue;
                 }
-                if cell.flags.contains(alacritty_terminal::term::cell::Flags::HIDDEN) {
-                    continue;
-                }
-                line_chars.push(cell.c);
-                col_indices.push(c);
+                let c = if case_sensitive {
+                    cell.c
+                } else {
+                    cell.c.to_lowercase().next().unwrap_or(cell.c)
+                };
+                chars.push(c);
+                col_indices.push(col);
             }
 
-            let search_chars: Vec<char> = if case_sensitive {
-                line_chars.clone()
-            } else {
-                let mut lower = Vec::with_capacity(line_chars.len());
-                for c in &line_chars {
-                    for lc in c.to_lowercase() {
-                        lower.push(lc);
-                    }
-                }
-                lower
-            };
-
-            if search_chars.len() < query_len {
+            if chars.len() < query_len {
                 continue;
             }
 
-            for start_char in 0..=(search_chars.len() - query_len) {
-                if &search_chars[start_char..start_char + query_len] == query_chars.as_slice() {
-                    let end_char = start_char + query_len - 1;
-                    if start_char < col_indices.len() && end_char < col_indices.len() {
-                        let col_start = col_indices[start_char];
-                        let col_end_base = col_indices[end_char];
+            // 字符切片匹配
+            for i in 0..=(chars.len() - query_len) {
+                if chars[i..i + query_len] == query_chars[..] {
+                    let col_start = col_indices[i];
+                    let end_char = i + query_len - 1;
+                    let col_end_base = col_indices[end_char];
 
-                        let col_end = if end_char + 1 < col_indices.len() {
-                            col_indices[end_char + 1] - 1
-                        } else {
-                            (col_end_base + 1).min(cols - 1)
-                        };
+                    let col_end = if end_char + 1 < col_indices.len() {
+                        col_indices[end_char + 1] - 1
+                    } else {
+                        (col_end_base + 1).min(cols - 1)
+                    };
 
-                        matches.push(SearchMatch {
-                            line: actual_line,
-                            col_start,
-                            col_end: col_end.max(col_start),
-                        });
-                    }
+                    matches.push(SearchMatch {
+                        line: actual_line,
+                        col_start,
+                        col_end: col_end.max(col_start),
+                    });
                 }
             }
         }
@@ -403,12 +419,10 @@ impl Terminal {
         let screen = self.term.grid().screen_lines() as i32;
         let history = self.term.grid().history_size() as usize;
 
-        // 计算目标行相对屏幕的行号：row_idx = m.line + display_offset
-        // 我们希望目标行大致显示在屏幕中间偏上位置（比如 1/3 处）
+        // 计算目标行相对屏幕的行号：我们希望目标行显示在屏幕中间偏上位置（比如 1/3 处）
         let desired_screen_row = (screen / 3).max(0);
         let target_display_offset = (desired_screen_row - m.line).clamp(0, history as i32) as usize;
 
-        self.term.scroll_display(alacritty_terminal::grid::Scroll::Top);
         // 重置后滚动到 target_display_offset
         let current = self.term.grid().display_offset();
         if target_display_offset > current {
@@ -520,13 +534,32 @@ mod tests {
         t.feed(b"line 1\r\nline 2\r\nline 3\r\nline 4\r\nline 5\r\n");
         
         // 3 行屏幕经 5 次换行后，屏幕显示 line 4, line 5, 空行。
-        // 向上回滚 2 行后，第 0 行显示 line 2
-        t.scroll_display(2);
+        // 历史缓冲区中第 -1 行为 line 3，第 -2 行为 line 2，第 -3 行为 line 1
         t.selection = Some(SelectionRange {
-            start: GridPoint { line: 0, col: 0 },
-            end: GridPoint { line: 0, col: 5 },
+            start: GridPoint { line: -1, col: 0 },
+            end: GridPoint { line: -1, col: 5 },
+        });
+        assert_eq!(t.selected_text().as_deref(), Some("line 3"));
+
+        t.selection = Some(SelectionRange {
+            start: GridPoint { line: -2, col: 0 },
+            end: GridPoint { line: -2, col: 5 },
         });
         assert_eq!(t.selected_text().as_deref(), Some("line 2"));
+    }
+
+    #[test]
+    fn selected_text_multiline_stream() {
+        let mut t = Terminal::new(40, 5, TermThemeColors::default());
+        t.feed(b"first line\r\nsecond line\r\nthird line\r\n");
+
+        // 跨行流式选择：从第 0 行 "line" (col 6) 到第 1 行 "second" (col 5)
+        t.selection = Some(SelectionRange {
+            start: GridPoint { line: 0, col: 6 },
+            end: GridPoint { line: 1, col: 5 },
+        });
+        let text = t.selected_text().unwrap();
+        assert_eq!(text, "line\nsecond");
     }
 
     #[test]

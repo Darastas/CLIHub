@@ -323,6 +323,91 @@ pub fn show(
                 if plus_resp.on_hover_text("Start a new instance").clicked() {
                     action = Some(TerminalAction::NewTab);
                 }
+
+                ui.add_space(6.0);
+
+                // 搜索按钮（与新增实例按钮设计规格 100% 统一）
+                let is_search_open = session.tabs.get(session.active_tab).map_or(false, |t| t.search_state.is_open);
+                let (search_rect, search_resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
+                let is_search_hovered = search_resp.hovered();
+                let search_hover_factor = ui.ctx().animate_bool(Id::new(("search_tab_hover", session.id)), is_search_hovered);
+
+                let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
+                let search_base = if is_search_open {
+                    if dark {
+                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 55)
+                    } else {
+                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 35)
+                    }
+                } else if dark {
+                    Color32::from_white_alpha(5)
+                } else {
+                    Color32::from_black_alpha(8)
+                };
+                let search_hover = if is_search_open {
+                    if dark {
+                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 85)
+                    } else {
+                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50)
+                    }
+                } else if dark {
+                    Color32::from_white_alpha(14)
+                } else {
+                    Color32::from_black_alpha(16)
+                };
+                let search_bg = Color32::from_rgba_premultiplied(
+                    (search_base.r() as f32 * (1.0 - search_hover_factor) + search_hover.r() as f32 * search_hover_factor).clamp(0.0, 255.0) as u8,
+                    (search_base.g() as f32 * (1.0 - search_hover_factor) + search_hover.g() as f32 * search_hover_factor).clamp(0.0, 255.0) as u8,
+                    (search_base.b() as f32 * (1.0 - search_hover_factor) + search_hover.b() as f32 * search_hover_factor).clamp(0.0, 255.0) as u8,
+                    (search_base.a() as f32 * (1.0 - search_hover_factor) + search_hover.a() as f32 * search_hover_factor).clamp(0.0, 255.0) as u8,
+                );
+                let search_stroke = if is_search_open {
+                    Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 130 } else { 95 })
+                } else if dark {
+                    Color32::from_white_alpha(8)
+                } else {
+                    Color32::from_black_alpha(10)
+                };
+
+                let p = ui.painter();
+                let search_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+                p.rect_filled(search_rect.translate(vec2(0.0, 1.5)), 12.0, search_shadow);
+                p.rect_filled(search_rect, 12.0, search_bg);
+                p.rect_stroke(search_rect, 12.0, egui::Stroke::new(0.5, search_stroke), egui::StrokeKind::Inside);
+
+                let search_fg = if is_search_open {
+                    if dark { Color32::WHITE } else { Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]) }
+                } else if is_search_hovered {
+                    if dark { Color32::WHITE } else { Color32::BLACK }
+                } else {
+                    if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
+                };
+                p.text(
+                    search_rect.center(),
+                    Align2::CENTER_CENTER,
+                    "🔍",
+                    FontId::new(13.0, egui::FontFamily::Proportional),
+                    search_fg,
+                );
+
+                if search_resp.on_hover_text("Search in Terminal (Ctrl+F)").clicked() {
+                    if let Some(tab) = session.tabs.get_mut(session.active_tab) {
+                        tab.search_state.is_open = !tab.search_state.is_open;
+                        if tab.search_state.is_open {
+                            tab.search_state.request_focus = true;
+                            if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
+                                let trimmed = sel.trim();
+                                if !trimmed.is_empty() {
+                                    tab.search_state.query = trimmed.to_string();
+                                    if let Some(t) = &tab.terminal {
+                                        tab.search_state.matches = t.search(&tab.search_state.query, tab.search_state.case_sensitive);
+                                        tab.search_state.active_match = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             });
         });
     ui.add_space(6.0);
@@ -349,12 +434,19 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.add_space(12.0); // 左外边距
         let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click_and_drag());
-        // 点击终端区域或切换 session 后自动获取焦点，确保 IME 立即可用
-        if resp.clicked() || (input_enabled && !resp.has_focus()) {
+        
+        let is_search_open = session.tabs.get(session.active_tab).map_or(false, |t| t.search_state.is_open);
+        let find_input_id = ui.id().with("find_input");
+        let find_input_focused = ui.memory(|m| m.has_focus(find_input_id));
+
+        // 点击终端区域时获取焦点；搜索栏未打开且未聚焦搜索框时才自动维持终端焦点
+        if resp.clicked() {
+            resp.request_focus();
+        } else if input_enabled && !resp.has_focus() && !is_search_open && !find_input_focused {
             resp.request_focus();
         }
         let window_focused = ui.input(|i| i.focused);
-        let focused = resp.has_focus() && window_focused;
+        let focused = resp.has_focus() && window_focused && !find_input_focused;
 
         // 网格可用区域：内边距
         let grid_rect = Rect::from_min_max(
@@ -396,18 +488,50 @@ pub fn show(
         let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
         
 
+        let find_bar_rect = if tab.search_state.is_open {
+            let bar_w = 340.0;
+            let bar_h = 36.0;
+            let margin = 12.0;
+            Some(Rect::from_min_size(
+                Pos2::new(term_rect.max.x - bar_w - margin, term_rect.min.y + margin),
+                vec2(bar_w, bar_h),
+            ))
+        } else {
+            None
+        };
+
         if let Some(pos) = resp.interact_pointer_pos() {
-            let col = ((pos.x - grid_rect.min.x) / col_w).floor().clamp(0.0, (cols.saturating_sub(1)) as f32) as usize;
-            let line = ((pos.y - grid_rect.min.y) / row_h).floor().clamp(0.0, (rows.saturating_sub(1)) as f32) as usize;
-            
-            let gp = crate::backend::terminal::GridPoint { line, col };
-            
-            if let Some(t) = &mut tab.terminal {
-                if resp.drag_started_by(egui::PointerButton::Primary) {
-                    t.selection = Some(crate::backend::terminal::SelectionRange { start: gp, end: gp });
-                } else if resp.dragged_by(egui::PointerButton::Primary) {
-                    if let Some(sel) = &mut t.selection {
-                        sel.end = gp;
+            let is_inside_find_bar = find_bar_rect.map_or(false, |r| r.contains(pos));
+            if !is_inside_find_bar {
+                let col = ((pos.x - grid_rect.min.x) / col_w).floor().clamp(0.0, (cols.saturating_sub(1)) as f32) as usize;
+                let viewport_line = ((pos.y - grid_rect.min.y) / row_h).floor().clamp(0.0, (rows.saturating_sub(1)) as f32) as i32;
+                
+                if let Some(t) = &mut tab.terminal {
+                    if resp.drag_started_by(egui::PointerButton::Primary) {
+                        let display_offset = t.term.grid().display_offset() as i32;
+                        let actual_line = viewport_line - display_offset;
+                        let gp = crate::backend::terminal::GridPoint { line: actual_line, col };
+                        t.selection = Some(crate::backend::terminal::SelectionRange { start: gp, end: gp });
+                    } else if resp.dragged_by(egui::PointerButton::Primary) {
+                        // 拖拽超出终端视口顶部/底部时触发自动滚屏 (Drag-to-select Auto-Scroll)
+                        if pos.y < grid_rect.min.y {
+                            let overflow = grid_rect.min.y - pos.y;
+                            let scroll_lines = ((overflow / row_h) * 0.5).ceil().clamp(1.0, 5.0) as i32;
+                            t.scroll_display(scroll_lines);
+                            ui.ctx().request_repaint();
+                        } else if pos.y > grid_rect.max.y {
+                            let overflow = pos.y - grid_rect.max.y;
+                            let scroll_lines = ((overflow / row_h) * 0.5).ceil().clamp(1.0, 5.0) as i32;
+                            t.scroll_display(-scroll_lines);
+                            ui.ctx().request_repaint();
+                        }
+
+                        let display_offset = t.term.grid().display_offset() as i32;
+                        let actual_line = viewport_line - display_offset;
+                        let gp = crate::backend::terminal::GridPoint { line: actual_line, col };
+                        if let Some(sel) = &mut t.selection {
+                            sel.end = gp;
+                        }
                     }
                 }
             }
@@ -427,8 +551,11 @@ pub fn show(
         
         // 单击空白处取消选区（只有在没有发生拖拽且确实是单纯点击时才清除）
         if resp.clicked_by(egui::PointerButton::Primary) && !resp.dragged_by(egui::PointerButton::Primary) {
-            if let Some(t) = &mut tab.terminal {
-                t.selection = None;
+            let is_inside_find_bar = find_bar_rect.and_then(|r| resp.interact_pointer_pos().map(|p| r.contains(p))).unwrap_or(false);
+            if !is_inside_find_bar {
+                if let Some(t) = &mut tab.terminal {
+                    t.selection = None;
+                }
             }
         }
         
@@ -552,6 +679,56 @@ pub fn show(
         // 渲染终端搜索栏 (Find Bar)
         if tab.search_state.is_open {
             render_find_bar(ui, theme, tab, term_rect);
+        }
+
+        // 渲染双击 Ctrl+C 防误触浮动提示条
+        if let Some(last) = tab.last_ctrl_c {
+            let elapsed_ms = last.elapsed().as_millis();
+            if elapsed_ms <= 1000 {
+                let remaining_ratio = 1.0 - (elapsed_ms as f32 / 1000.0).clamp(0.0, 1.0);
+                let alpha = (remaining_ratio * 255.0) as u8;
+
+                let hud_w = 260.0;
+                let hud_h = 32.0;
+                let hud_rect = Rect::from_center_size(
+                    Pos2::new(term_rect.center().x, term_rect.max.y - 28.0),
+                    vec2(hud_w, hud_h),
+                );
+
+                let p = ui.painter().with_clip_rect(term_rect);
+                // 投影
+                p.rect_filled(hud_rect.translate(vec2(0.0, 2.0)), 16.0, Color32::from_black_alpha((alpha as f32 * 0.4) as u8));
+                // 底色
+                let hud_bg = if dark {
+                    Color32::from_rgba_premultiplied(35, 38, 48, alpha)
+                } else {
+                    Color32::from_rgba_premultiplied(240, 243, 250, alpha)
+                };
+                p.rect_filled(hud_rect, 16.0, hud_bg);
+                // 边框
+                let hud_stroke = if dark {
+                    Color32::from_rgba_premultiplied(220, 160, 40, (alpha as f32 * 0.8) as u8)
+                } else {
+                    Color32::from_rgba_premultiplied(200, 140, 30, (alpha as f32 * 0.8) as u8)
+                };
+                p.rect_stroke(hud_rect, 16.0, egui::Stroke::new(1.0, hud_stroke), egui::StrokeKind::Inside);
+
+                // 提示文字
+                let text_color = if dark {
+                    Color32::from_rgba_premultiplied(250, 220, 120, alpha)
+                } else {
+                    Color32::from_rgba_premultiplied(160, 90, 0, alpha)
+                };
+                p.text(
+                    hud_rect.center(),
+                    Align2::CENTER_CENTER,
+                    "⚠️ 再按一次 Ctrl+C 终止/退出",
+                    FontId::proportional(12.5),
+                    text_color,
+                );
+
+                ui.ctx().request_repaint(); // 保证淡出动画平滑过渡
+            }
         }
 
         // 在光标位置渲染 IME 预编辑文字（拼音）
@@ -743,7 +920,7 @@ fn paint_grid(
             );
         }
         
-        // 3.5) 选区背景
+        // 3.5) 选区背景（基于缓冲区绝对行号，紧贴真实文字末尾，消除右侧大片空白高亮）
         if let Some(sel) = terminal.selection {
             let mut s_line = sel.start.line;
             let mut e_line = sel.end.line;
@@ -754,18 +931,59 @@ fn paint_grid(
                 std::mem::swap(&mut s_col, &mut e_col);
             }
             
-            if li >= s_line && li <= e_line {
-                let sc = if li == s_line { s_col } else { 0 };
-                let ec = if li == e_line { e_col } else { cols as usize - 1 };
-                
-                let x0 = origin.x + sc as f32 * col_w;
-                let x1 = origin.x + (ec + 1) as f32 * col_w;
-                let sel_bg = if theme.is_dark() { Color32::from_white_alpha(50) } else { Color32::from_rgb(186, 212, 255) };
-                painter.rect_filled(
-                    Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
-                    0.0,
-                    sel_bg,
-                );
+            let actual_line = li as i32 - display_offset as i32;
+            if actual_line >= s_line && actual_line <= e_line {
+                // 计算当前行真实文字内容的最后一列（不含右侧全空白）
+                let mut content_end = 0;
+                for (ci, cell) in cells.iter().enumerate() {
+                    if cell.c != ' ' && !cell.flags.contains(Flags::HIDDEN) {
+                        let w = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+                        content_end = (ci + w).min(cols as usize);
+                    }
+                }
+
+                let sel_span = if s_line == e_line {
+                    if content_end > 0 && s_col < content_end {
+                        Some((s_col, (e_col + 1).min(content_end)))
+                    } else {
+                        None
+                    }
+                } else if actual_line == s_line {
+                    if content_end > 0 && s_col < content_end {
+                        Some((s_col, content_end))
+                    } else {
+                        None
+                    }
+                } else if actual_line == e_line {
+                    if e_col > 0 {
+                        Some((0, (e_col + 1).min(content_end.max(1))))
+                    } else {
+                        None
+                    }
+                } else {
+                    if content_end > 0 {
+                        Some((0, content_end))
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some((sc, ec)) = sel_span {
+                    if sc < ec {
+                        let x0 = origin.x + sc as f32 * col_w;
+                        let x1 = origin.x + ec as f32 * col_w;
+                        let sel_bg = if theme.is_dark() {
+                            Color32::from_rgb(0, 105, 230).gamma_multiply(0.42)
+                        } else {
+                            Color32::from_rgb(186, 212, 255)
+                        };
+                        painter.rect_filled(
+                            Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
+                            0.0,
+                            sel_bg,
+                        );
+                    }
+                }
             }
         }
 
@@ -945,18 +1163,14 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
     if !ui.input(|i| i.focused) {
         return None;
     }
+    let find_input_id = ui.id().with("find_input");
+    if ui.memory(|m| m.has_focus(find_input_id)) {
+        return None; // 搜索框处于输入状态，绝对不向 PTY 终端转发按键
+    }
     let events = ui.input(|i| i.events.clone());
     let mut out: Vec<u8> = Vec::new();
     
     for ev in events {
-        // 临时记录所有事件到文件，方便排查输入法重发问题
-        if let egui::Event::Ime(_) | egui::Event::Text(_) | egui::Event::Key { .. } = &ev {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("d:\\Terminal desk\\events.log") {
-                let _ = writeln!(f, "EVENT: {:?}", ev);
-            }
-        }
-        
         match ev {
             // ---- IME 事件 ----
             egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
@@ -983,7 +1197,35 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
 
             // ---- 普通事件（非 IME 组合态）----
             egui::Event::Copy => {
-                out.extend_from_slice(b"\x03"); // 终端经典行为：Ctrl+C 始终发送 SIGINT (^C)
+                // 1) 若存在选区：优先执行智能复制，绝不杀死当前运行任务
+                if let Some(t) = &mut tab.terminal {
+                    if t.selection.is_some() {
+                        if let Some(sel) = t.selected_text() {
+                            if !sel.is_empty() {
+                                set_clipboard_text(&sel);
+                                ui.ctx().copy_text(sel);
+                            }
+                        }
+                        t.selection = None;
+                        continue;
+                    }
+                }
+
+                // 2) 无选区：执行双击 Ctrl+C 防误触中断保护 (1秒内连按两次才发送 SIGINT)
+                let now = std::time::Instant::now();
+                let is_double_press = if let Some(last) = tab.last_ctrl_c {
+                    now.duration_since(last).as_millis() <= 1000
+                } else {
+                    false
+                };
+
+                if is_double_press {
+                    tab.last_ctrl_c = None;
+                    out.extend_from_slice(b"\x03"); // 发送 SIGINT (^C)
+                } else {
+                    tab.last_ctrl_c = Some(now);
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(1000));
+                }
             }
             egui::Event::Paste(text) => out.extend_from_slice(text.as_bytes()),
             egui::Event::Text(text) => {
@@ -1015,18 +1257,55 @@ fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                 ..
             } => {
                 let is_ctrl_or_cmd = modifiers.ctrl || modifiers.command;
-                
+
+                // 智能 Ctrl+C 与 双击 Ctrl+C 防误触保护
+                let is_ctrl_c = is_ctrl_or_cmd && !modifiers.shift && !modifiers.alt && key == egui::Key::C;
+                if is_ctrl_c {
+                    // 1) 若存在选区：优先执行复制并取消选中
+                    if let Some(t) = &mut tab.terminal {
+                        if t.selection.is_some() {
+                            if let Some(sel) = t.selected_text() {
+                                if !sel.is_empty() {
+                                    set_clipboard_text(&sel);
+                                    ui.ctx().copy_text(sel);
+                                }
+                            }
+                            t.selection = None;
+                            continue;
+                        }
+                    }
+
+                    // 2) 无选区：执行双击 Ctrl+C 判定 (1秒内连续按两次才真正中断)
+                    let now = std::time::Instant::now();
+                    let is_double_press = if let Some(last) = tab.last_ctrl_c {
+                        now.duration_since(last).as_millis() <= 1000
+                    } else {
+                        false
+                    };
+
+                    if is_double_press {
+                        tab.last_ctrl_c = None;
+                        out.extend_from_slice(b"\x03"); // 发送 SIGINT (^C)
+                    } else {
+                        tab.last_ctrl_c = Some(now);
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(1000));
+                    }
+                    continue;
+                }
+
                 // 终端专用复制快捷键（Ctrl+Shift+C / Cmd+Shift+C / Ctrl+Insert）
-                // 保证常规 Ctrl+C 纯粹用于发送 SIGINT 中断退出应用，Shift+C 正常输入字符
                 let is_copy_key = (is_ctrl_or_cmd && modifiers.shift && key == egui::Key::C)
                     || (key == egui::Key::Insert && modifiers.ctrl);
 
                 if is_copy_key {
-                    if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
-                        if !sel.is_empty() {
-                            set_clipboard_text(&sel);
-                            ui.ctx().copy_text(sel);
+                    if let Some(t) = &mut tab.terminal {
+                        if let Some(sel) = t.selected_text() {
+                            if !sel.is_empty() {
+                                set_clipboard_text(&sel);
+                                ui.ctx().copy_text(sel);
+                            }
                         }
+                        t.selection = None;
                     }
                     continue;
                 }
@@ -1462,24 +1741,28 @@ fn render_find_bar(
     term_rect: Rect,
 ) {
     let dark = theme.is_dark();
-    let bar_w = 340.0;
-    let bar_h = 36.0;
-    let margin = 12.0;
+    let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
+    let bar_w = 384.0;
+    let bar_h = 38.0;
+    let margin = 14.0;
 
     let bar_rect = Rect::from_min_size(
         Pos2::new(term_rect.max.x - bar_w - margin, term_rect.min.y + margin),
         vec2(bar_w, bar_h),
     );
 
+    // 拦截卡片区域的所有鼠标点击与拖拽事件，防止穿透到底层终端触发文本框选
+    let _ = ui.interact(bar_rect, ui.id().with("find_bar_container"), Sense::click_and_drag());
+
     let bg_color = if dark {
-        Color32::from_rgba_premultiplied(32, 35, 42, 245)
+        Color32::from_rgba_premultiplied(24, 27, 36, 250)
     } else {
-        Color32::from_rgba_premultiplied(250, 252, 255, 245)
+        Color32::from_rgba_premultiplied(255, 255, 255, 250)
     };
     let border_color = if dark {
-        Color32::from_rgb(65, 72, 85)
+        Color32::from_white_alpha(18)
     } else {
-        Color32::from_rgb(205, 215, 225)
+        Color32::from_black_alpha(20)
     };
     let text_main = if dark {
         Color32::from_rgb(235, 240, 250)
@@ -1487,9 +1770,9 @@ fn render_find_bar(
         Color32::from_rgb(30, 35, 45)
     };
     let text_sub = if dark {
-        Color32::from_rgb(150, 160, 175)
+        Color32::from_rgb(140, 150, 168)
     } else {
-        Color32::from_rgb(110, 120, 135)
+        Color32::from_rgb(120, 130, 145)
     };
 
     let mut execute_search = false;
@@ -1497,34 +1780,56 @@ fn render_find_bar(
     let mut go_next = false;
     let mut close_bar = false;
 
-    // 绘制卡片容器
+    // 1) 绘制柔和深邃投影
     let painter = ui.painter().with_clip_rect(term_rect);
-    painter.rect_filled(bar_rect, 8.0, bg_color);
+    let shadow_color = Color32::from_black_alpha(if dark { 90 } else { 25 });
+    painter.rect_filled(bar_rect.translate(vec2(0.0, 2.5)), 12.0, shadow_color);
+
+    // 2) 绘制磨砂玻璃底色与精致微边框
+    painter.rect_filled(bar_rect, 12.0, bg_color);
     painter.rect_stroke(
         bar_rect,
-        8.0,
-        egui::Stroke::new(1.0, border_color),
-        egui::StrokeKind::Outside,
+        12.0,
+        egui::Stroke::new(0.75, border_color),
+        egui::StrokeKind::Inside,
     );
 
-    // 在卡片内部进行 UI 布局
+    // 3) 在卡片内部进行水平流式布局
     let mut child_ui = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(bar_rect.shrink2(vec2(8.0, 4.0)))
+            .max_rect(bar_rect.shrink2(vec2(10.0, 5.0)))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
 
-    child_ui.label(egui::RichText::new("🔍").size(12.0).color(text_sub));
+    // ---- 搜索输入框内嵌药丸容器 (170x28px) ----
+    let input_container_w = 172.0;
+    let input_container_h = 28.0;
+    let (input_rect, _) = child_ui.allocate_exact_size(vec2(input_container_w, input_container_h), Sense::hover());
+    
+    let input_bg = if dark { Color32::from_black_alpha(55) } else { Color32::from_black_alpha(10) };
+    let input_stroke = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) };
+    let p_inner = child_ui.painter();
+    p_inner.rect_filled(input_rect, 8.0, input_bg);
+    p_inner.rect_stroke(input_rect, 8.0, egui::Stroke::new(0.5, input_stroke), egui::StrokeKind::Inside);
 
-    let edit_id = child_ui.id().with("find_input");
-    let edit_resp = child_ui.add(
+    let mut input_ui = child_ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(input_rect.shrink2(vec2(6.0, 2.0)))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    input_ui.label(egui::RichText::new("🔍").size(11.0).color(text_sub));
+    input_ui.add_space(2.0);
+
+    let edit_id = input_ui.id().with("find_input");
+    let edit_resp = input_ui.add(
         egui::TextEdit::singleline(&mut tab.search_state.query)
             .id(edit_id)
-            .desired_width(130.0)
+            .desired_width(135.0)
             .font(FontId::proportional(12.5))
-            .hint_text("Find...")
+            .hint_text("Find in terminal...")
             .text_color(text_main)
-            .margin(egui::Margin::symmetric(4, 2)),
+            .frame(egui::Frame::NONE)
+            .margin(egui::Margin::ZERO),
     );
 
     if tab.search_state.request_focus {
@@ -1536,7 +1841,7 @@ fn render_find_bar(
         execute_search = true;
     }
 
-    // 监听输入框内的回车与快捷键 (Enter -> 下一个, Shift+Enter -> 上一个, Esc -> 关闭)
+    // 快捷键监听
     if edit_resp.has_focus() {
         if child_ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             close_bar = true;
@@ -1549,82 +1854,129 @@ fn render_find_bar(
         }
     }
 
-    // 匹配计数 (如 "2/15" 或 "0/0")
+    child_ui.add_space(4.0);
+
+    // ---- 匹配计数药丸徽章 ----
     let total_matches = tab.search_state.matches.len();
-    let current_idx = if total_matches == 0 {
-        0
-    } else {
-        tab.search_state.active_match + 1
-    };
+    let current_idx = if total_matches == 0 { 0 } else { tab.search_state.active_match + 1 };
+    let has_query = !tab.search_state.query.trim().is_empty();
+    
     let count_text = format!("{current_idx}/{total_matches}");
-    child_ui.label(
-        egui::RichText::new(count_text)
-            .font(FontId::proportional(11.0))
-            .color(if total_matches == 0 && !tab.search_state.query.trim().is_empty() {
-                Color32::from_rgb(220, 70, 60)
-            } else {
-                text_sub
-            }),
+    let (badge_bg, badge_fg) = if total_matches == 0 && has_query {
+        (Color32::from_rgba_unmultiplied(220, 50, 40, 35), Color32::from_rgb(235, 80, 70))
+    } else {
+        (if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) }, text_sub)
+    };
+    
+    let (badge_rect, _) = child_ui.allocate_exact_size(vec2(40.0, 22.0), Sense::hover());
+    let p_badge = child_ui.painter();
+    p_badge.rect_filled(badge_rect, 6.0, badge_bg);
+    p_badge.text(
+        badge_rect.center(),
+        Align2::CENTER_CENTER,
+        count_text,
+        FontId::proportional(11.0),
+        badge_fg,
     );
 
-    child_ui.add_space(2.0);
+    child_ui.add_space(4.0);
 
-    // 向上查找按钮 ▲
-    if child_ui
-        .add(
-            egui::Button::new(egui::RichText::new("▲").size(10.0).color(text_main))
-                .min_size(vec2(20.0, 20.0)),
-        )
-        .on_hover_text("Previous match (Shift+Enter)")
-        .clicked()
-    {
+    // ---- 向上查找按钮 ▲ ----
+    let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+    let prev_hover = prev_resp.hovered();
+    if prev_hover {
+        child_ui.painter().rect_filled(prev_rect, 6.0, if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) });
+    }
+    child_ui.painter().text(
+        prev_rect.center(),
+        Align2::CENTER_CENTER,
+        "▲",
+        FontId::proportional(10.0),
+        if prev_hover { text_main } else { text_sub },
+    );
+    if prev_resp.on_hover_text("Previous match (Shift+Enter)").clicked() {
         go_prev = true;
     }
 
-    // 向下查找按钮 ▼
-    if child_ui
-        .add(
-            egui::Button::new(egui::RichText::new("▼").size(10.0).color(text_main))
-                .min_size(vec2(20.0, 20.0)),
-        )
-        .on_hover_text("Next match (Enter)")
-        .clicked()
-    {
+    child_ui.add_space(2.0);
+
+    // ---- 向下查找按钮 ▼ ----
+    let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+    let next_hover = next_resp.hovered();
+    if next_hover {
+        child_ui.painter().rect_filled(next_rect, 6.0, if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) });
+    }
+    child_ui.painter().text(
+        next_rect.center(),
+        Align2::CENTER_CENTER,
+        "▼",
+        FontId::proportional(10.0),
+        if next_hover { text_main } else { text_sub },
+    );
+    if next_resp.on_hover_text("Next match (Enter)").clicked() {
         go_next = true;
     }
 
-    // 大小写敏感开关 Aa
-    let case_btn = egui::Button::new(
-        egui::RichText::new("Aa")
-            .size(11.0)
-            .strong()
-            .color(if tab.search_state.case_sensitive {
-                Color32::from_rgb(0, 111, 238)
-            } else {
-                text_sub
-            }),
-    )
-    .min_size(vec2(22.0, 20.0));
+    child_ui.add_space(2.0);
 
-    if child_ui
-        .add(case_btn)
-        .on_hover_text("Match Case")
-        .clicked()
-    {
+    // ---- 大小写敏感开关 Aa ----
+    let is_case = tab.search_state.case_sensitive;
+    let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
+    let case_hover = case_resp.hovered();
+    
+    let case_bg = if is_case {
+        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 60 } else { 40 })
+    } else if case_hover {
+        if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) }
+    } else {
+        Color32::TRANSPARENT
+    };
+    let case_fg = if is_case {
+        if dark { Color32::WHITE } else { Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]) }
+    } else if case_hover {
+        text_main
+    } else {
+        text_sub
+    };
+    
+    if case_bg != Color32::TRANSPARENT {
+        child_ui.painter().rect_filled(case_rect, 6.0, case_bg);
+    }
+    if is_case {
+        child_ui.painter().rect_stroke(case_rect, 6.0, egui::Stroke::new(0.5, Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 120)), egui::StrokeKind::Inside);
+    }
+    child_ui.painter().text(
+        case_rect.center(),
+        Align2::CENTER_CENTER,
+        "Aa",
+        FontId::new(11.5, egui::FontFamily::Proportional),
+        case_fg,
+    );
+    if case_resp.on_hover_text("Match Case").clicked() {
         tab.search_state.case_sensitive = !tab.search_state.case_sensitive;
         execute_search = true;
     }
 
-    // 关闭按钮 ✕
-    if child_ui
-        .add(
-            egui::Button::new(egui::RichText::new("✕").size(11.0).color(text_sub))
-                .min_size(vec2(20.0, 20.0))
-                .frame(false),
-        )
-        .on_hover_text("Close (Esc)")
-        .clicked()
-    {
+    child_ui.add_space(2.0);
+
+    // ---- 关闭按钮 ✕ ----
+    let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+    let close_hover = close_resp.hovered();
+    if close_hover {
+        child_ui.painter().rect_filled(close_rect, 6.0, Color32::from_rgba_premultiplied(220, 60, 50, 70));
+    }
+    let close_color = if close_hover { Color32::WHITE } else { text_sub };
+    let c_center = close_rect.center();
+    let cd = 4.0;
+    child_ui.painter().line_segment(
+        [c_center + vec2(-cd, -cd), c_center + vec2(cd, cd)],
+        egui::Stroke::new(1.3, close_color),
+    );
+    child_ui.painter().line_segment(
+        [c_center + vec2(-cd, cd), c_center + vec2(cd, -cd)],
+        egui::Stroke::new(1.3, close_color),
+    );
+    if close_resp.on_hover_text("Close (Esc)").clicked() {
         close_bar = true;
     }
 

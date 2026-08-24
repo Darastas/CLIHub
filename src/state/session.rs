@@ -83,6 +83,8 @@ pub struct TerminalInstance {
     pub scroll_accum: f32,
     /// 终端内关键词搜索状态
     pub search_state: SearchState,
+    /// 最近一次按下 Ctrl+C 的时间戳（用于短时间双击防误触退出）
+    pub last_ctrl_c: Option<std::time::Instant>,
 }
 
 impl TerminalInstance {
@@ -97,6 +99,7 @@ impl TerminalInstance {
             ime_just_committed_text: None,
             scroll_accum: 0.0,
             search_state: SearchState::default(),
+            last_ctrl_c: None,
         }
     }
 
