@@ -326,12 +326,15 @@ pub fn show(
 
                 ui.add_space(6.0);
 
-                // ---- Keynote 风格横向展开/收缩搜索栏 ----
+                // ---- Keynote / Apple 风格横向流体展开/收缩搜索栏 ----
                 let is_search_open = session.tabs.get(session.active_tab).map_or(false, |t| t.search_state.is_open);
-                let expand_factor = ui.ctx().animate_bool_responsive(Id::new(("search_tab_expand", session.id)), is_search_open);
+                // 动画时长 0.32 秒，配合苹果 signature fluid ease-out 阻尼曲线
+                let raw_expand_t = ui.ctx().animate_bool_with_time(Id::new(("search_tab_expand", session.id)), is_search_open, 0.32);
+                // 苹果经典减速缓动曲线: cubic-bezier(0.22, 1.0, 0.36, 1.0)
+                let expand_factor = 1.0 - (1.0 - raw_expand_t.clamp(0.0, 1.0)).powf(3.0);
 
                 let collapsed_w = 34.0;
-                let expanded_w = 330.0;
+                let expanded_w = 340.0;
                 let current_w = egui::lerp(collapsed_w..=expanded_w, expand_factor);
                 let (search_rect, search_resp) = ui.allocate_exact_size(vec2(current_w, 34.0), Sense::hover());
 
@@ -339,36 +342,35 @@ pub fn show(
                 let is_hovered = search_resp.hovered();
                 let hover_factor = ui.ctx().animate_bool(Id::new(("search_tab_hover", session.id)), is_hovered && !is_search_open);
 
-                let search_base = if is_search_open {
+                // 外层磨砂玻璃背景与高级质感微透底色
+                let outer_bg = if is_search_open {
                     if dark {
-                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50)
+                        Color32::from_rgba_premultiplied(22, 25, 34, 245)
                     } else {
-                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 30)
+                        Color32::from_rgba_premultiplied(255, 255, 255, 245)
                     }
                 } else if dark {
                     Color32::from_white_alpha(5)
                 } else {
                     Color32::from_black_alpha(8)
                 };
-                let search_hover = if is_search_open {
-                    if dark {
-                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 75)
-                    } else {
-                        Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 45)
-                    }
+                let outer_hover = if is_search_open {
+                    outer_bg
                 } else if dark {
                     Color32::from_white_alpha(14)
                 } else {
                     Color32::from_black_alpha(16)
                 };
                 let search_bg = Color32::from_rgba_premultiplied(
-                    (search_base.r() as f32 * (1.0 - hover_factor) + search_hover.r() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
-                    (search_base.g() as f32 * (1.0 - hover_factor) + search_hover.g() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
-                    (search_base.b() as f32 * (1.0 - hover_factor) + search_hover.b() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
-                    (search_base.a() as f32 * (1.0 - hover_factor) + search_hover.a() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
+                    (outer_bg.r() as f32 * (1.0 - hover_factor) + outer_hover.r() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
+                    (outer_bg.g() as f32 * (1.0 - hover_factor) + outer_hover.g() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
+                    (outer_bg.b() as f32 * (1.0 - hover_factor) + outer_hover.b() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
+                    (outer_bg.a() as f32 * (1.0 - hover_factor) + outer_hover.a() as f32 * hover_factor).clamp(0.0, 255.0) as u8,
                 );
+                
+                // 外层发丝级微边框（融入主题色与微高光）
                 let search_stroke = if is_search_open {
-                    Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 120 } else { 85 })
+                    Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 80 } else { 60 })
                 } else if dark {
                     Color32::from_white_alpha(8)
                 } else {
@@ -376,13 +378,14 @@ pub fn show(
                 };
 
                 let p = ui.painter();
-                let search_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+                // 柔和深邃投影
+                let search_shadow = if dark { Color32::from_black_alpha(70) } else { Color32::from_black_alpha(20) };
                 p.rect_filled(search_rect.translate(vec2(0.0, 1.5)), 12.0, search_shadow);
                 p.rect_filled(search_rect, 12.0, search_bg);
-                p.rect_stroke(search_rect, 12.0, egui::Stroke::new(0.5, search_stroke), egui::StrokeKind::Inside);
+                p.rect_stroke(search_rect, 12.0, egui::Stroke::new(0.65, search_stroke), egui::StrokeKind::Inside);
 
                 if expand_factor < 0.15 {
-                    // ---- 收起状态：显示居中放大镜图标，点击即可展开 ----
+                    // ---- 收起状态：精致居中图标按钮 ----
                     let compact_click_resp = ui.interact(search_rect, Id::new(("search_compact_btn", session.id)), Sense::click());
                     let search_fg = if is_hovered {
                         if dark { Color32::WHITE } else { Color32::BLACK }
@@ -414,18 +417,15 @@ pub fn show(
                         }
                     }
                 } else {
-                    // ---- 展开状态：在 Tab 栏内直接渲染完整的搜索工具链 ----
+                    // ---- 展开状态：精致微结构与操作群组 ----
                     let mut child_ui = ui.new_child(
                         egui::UiBuilder::new()
-                            .max_rect(search_rect.shrink2(vec2(6.0, 3.0)))
+                            .max_rect(search_rect.shrink2(vec2(6.0, 3.5)))
                             .layout(egui::Layout::left_to_right(egui::Align::Center)),
                     );
 
                     let text_main = if dark { Color32::from_rgb(235, 240, 250) } else { Color32::from_rgb(30, 35, 45) };
                     let text_sub = if dark { Color32::from_rgb(140, 150, 168) } else { Color32::from_rgb(120, 130, 145) };
-
-                    child_ui.label(egui::RichText::new("🔍").size(11.5).color(text_sub));
-                    child_ui.add_space(2.0);
 
                     if let Some(tab) = session.tabs.get_mut(session.active_tab) {
                         let mut execute_search = false;
@@ -433,13 +433,28 @@ pub fn show(
                         let mut go_next = false;
                         let mut close_bar = false;
 
-                        // 搜索输入框
-                        let edit_id = child_ui.id().with("find_input");
-                        let input_w = egui::lerp(20.0..=120.0, ((expand_factor - 0.15) / 0.85).clamp(0.0, 1.0));
-                        let edit_resp = child_ui.add(
+                        // 1) 内嵌文本胶囊框 (Inset Search Capsule)
+                        let capsule_w = egui::lerp(40.0..=135.0, ((expand_factor - 0.15) / 0.85).clamp(0.0, 1.0));
+                        let (capsule_rect, _) = child_ui.allocate_exact_size(vec2(capsule_w, 26.0), Sense::hover());
+                        
+                        let capsule_bg = if dark { Color32::from_black_alpha(65) } else { Color32::from_black_alpha(12) };
+                        let capsule_stroke = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(14) };
+                        child_ui.painter().rect_filled(capsule_rect, 7.0, capsule_bg);
+                        child_ui.painter().rect_stroke(capsule_rect, 7.0, egui::Stroke::new(0.5, capsule_stroke), egui::StrokeKind::Inside);
+
+                        let mut capsule_ui = child_ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(capsule_rect.shrink2(vec2(6.0, 2.0)))
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        capsule_ui.label(egui::RichText::new("🔍").size(10.5).color(text_sub));
+                        capsule_ui.add_space(2.0);
+
+                        let edit_id = capsule_ui.id().with("find_input");
+                        let edit_resp = capsule_ui.add(
                             egui::TextEdit::singleline(&mut tab.search_state.query)
                                 .id(edit_id)
-                                .desired_width(input_w)
+                                .desired_width(capsule_w - 28.0)
                                 .font(FontId::proportional(12.5))
                                 .hint_text("Find...")
                                 .text_color(text_main)
@@ -468,56 +483,62 @@ pub fn show(
                             }
                         }
 
-                        child_ui.add_space(2.0);
+                        child_ui.add_space(4.0);
 
-                        // 匹配计数徽章
+                        // 2) 匹配计数微徽章
                         let total_matches = tab.search_state.matches.len();
                         let current_idx = if total_matches == 0 { 0 } else { tab.search_state.active_match + 1 };
                         let has_query = !tab.search_state.query.trim().is_empty();
                         let count_text = format!("{current_idx}/{total_matches}");
                         let (badge_bg, badge_fg) = if total_matches == 0 && has_query {
-                            (Color32::from_rgba_unmultiplied(220, 50, 40, 35), Color32::from_rgb(235, 80, 70))
+                            (Color32::from_rgba_unmultiplied(225, 55, 45, 40), Color32::from_rgb(240, 90, 80))
                         } else {
-                            (if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) }, text_sub)
+                            (if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(10) }, text_sub)
                         };
 
                         let (badge_rect, _) = child_ui.allocate_exact_size(vec2(36.0, 20.0), Sense::hover());
                         let p_b = child_ui.painter();
-                        p_b.rect_filled(badge_rect, 5.0, badge_bg);
+                        p_b.rect_filled(badge_rect, 6.0, badge_bg);
                         p_b.text(badge_rect.center(), Align2::CENTER_CENTER, count_text, FontId::proportional(10.5), badge_fg);
 
-                        child_ui.add_space(2.0);
+                        child_ui.add_space(3.0);
 
-                        // ▲ 上一个
-                        let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                        // 3) 发丝级垂直分割线
+                        let (sep_rect, _) = child_ui.allocate_exact_size(vec2(1.0, 16.0), Sense::hover());
+                        child_ui.painter().rect_filled(sep_rect, 0.0, if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) });
+
+                        child_ui.add_space(3.0);
+
+                        // 4) ▲ 上一个按钮
+                        let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
                         let prev_hover = prev_resp.hovered();
                         if prev_hover {
-                            child_ui.painter().rect_filled(prev_rect, 4.0, if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) });
+                            child_ui.painter().rect_filled(prev_rect, 5.0, if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(15) });
                         }
                         child_ui.painter().text(prev_rect.center(), Align2::CENTER_CENTER, "▲", FontId::proportional(9.5), if prev_hover { text_main } else { text_sub });
                         if prev_resp.on_hover_text("Previous match (Shift+Enter)").clicked() {
                             go_prev = true;
                         }
 
-                        // ▼ 下一个
-                        let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                        // 5) ▼ 下一个按钮
+                        let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
                         let next_hover = next_resp.hovered();
                         if next_hover {
-                            child_ui.painter().rect_filled(next_rect, 4.0, if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) });
+                            child_ui.painter().rect_filled(next_rect, 5.0, if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(15) });
                         }
                         child_ui.painter().text(next_rect.center(), Align2::CENTER_CENTER, "▼", FontId::proportional(9.5), if next_hover { text_main } else { text_sub });
                         if next_resp.on_hover_text("Next match (Enter)").clicked() {
                             go_next = true;
                         }
 
-                        // Aa 大小写
+                        // 6) Aa 大小写切换按钮
                         let is_case = tab.search_state.case_sensitive;
-                        let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(22.0, 20.0), Sense::click());
+                        let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
                         let case_hover = case_resp.hovered();
                         let case_bg = if is_case {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 60 } else { 40 })
+                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 80 } else { 55 })
                         } else if case_hover {
-                            if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) }
+                            if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(15) }
                         } else {
                             Color32::TRANSPARENT
                         };
@@ -529,10 +550,10 @@ pub fn show(
                             text_sub
                         };
                         if case_bg != Color32::TRANSPARENT {
-                            child_ui.painter().rect_filled(case_rect, 4.0, case_bg);
+                            child_ui.painter().rect_filled(case_rect, 5.0, case_bg);
                         }
                         if is_case {
-                            child_ui.painter().rect_stroke(case_rect, 4.0, egui::Stroke::new(0.5, Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 120)), egui::StrokeKind::Inside);
+                            child_ui.painter().rect_stroke(case_rect, 5.0, egui::Stroke::new(0.5, Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 130)), egui::StrokeKind::Inside);
                         }
                         child_ui.painter().text(case_rect.center(), Align2::CENTER_CENTER, "Aa", FontId::new(11.0, egui::FontFamily::Proportional), case_fg);
                         if case_resp.on_hover_text("Match Case").clicked() {
@@ -540,11 +561,11 @@ pub fn show(
                             execute_search = true;
                         }
 
-                        // ✕ 关闭
-                        let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                        // 7) ✕ 关闭按钮
+                        let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
                         let close_hover = close_resp.hovered();
                         if close_hover {
-                            child_ui.painter().rect_filled(close_rect, 4.0, Color32::from_rgba_premultiplied(220, 60, 50, 70));
+                            child_ui.painter().rect_filled(close_rect, 5.0, Color32::from_rgba_premultiplied(225, 55, 45, 75));
                         }
                         let close_color = if close_hover { Color32::WHITE } else { text_sub };
                         let c_center = close_rect.center();
