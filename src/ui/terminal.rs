@@ -419,8 +419,8 @@ pub fn show(
                 let inner_alpha = ((expand_factor - 0.15) / 0.85).clamp(0.0, 1.0);
                 if inner_alpha > 0.01 {
                     let inner_rect = Rect::from_min_max(
-                        Pos2::new(search_rect.min.x + 32.0, search_rect.min.y + 4.0),
-                        Pos2::new(search_rect.max.x - 6.0, search_rect.max.y - 4.0),
+                        Pos2::new(search_rect.min.x + 34.0, search_rect.min.y),
+                        Pos2::new(search_rect.max.x - 6.0, search_rect.max.y),
                     );
                     let mut child_ui = ui.new_child(
                         egui::UiBuilder::new()
@@ -438,14 +438,18 @@ pub fn show(
                         let mut go_next = false;
                         let mut close_bar = false;
 
-                        // 1) 搜索输入框（内嵌胶囊 + 激活点击呼吸发光）
-                        let capsule_w = egui::lerp(20.0..=120.0, inner_alpha);
-                        let (capsule_rect, _) = child_ui.allocate_exact_size(vec2(capsule_w, 26.0), Sense::hover());
+                        // 1) 搜索输入框（绝对垂直居中：高度 24px，上下间距精确各 5.0px）
+                        let capsule_w = egui::lerp(20.0..=115.0, inner_alpha);
+                        let (capsule_rect, _) = child_ui.allocate_exact_size(vec2(capsule_w, 24.0), Sense::hover());
                         
                         let edit_id = child_ui.id().with("find_input");
+                        let edit_rect = Rect::from_center_size(
+                            capsule_rect.center(),
+                            vec2((capsule_w - 12.0).max(10.0), 18.0),
+                        );
                         let mut input_ui = child_ui.new_child(
                             egui::UiBuilder::new()
-                                .max_rect(capsule_rect.shrink2(vec2(6.0, 2.0)))
+                                .max_rect(edit_rect)
                                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
                         );
 
@@ -468,7 +472,7 @@ pub fn show(
                         let is_input_focused = edit_resp.has_focus();
                         let focus_factor = child_ui.ctx().animate_bool(Id::new(("find_focus_ring", session.id)), is_input_focused);
 
-                        // 输入框胶囊背景与点击发光外框
+                        // 输入框胶囊背景与点击发光外框（圆角 6px，绝对上下居中）
                         let capsule_bg = lerp_c(
                             if dark { Color32::from_black_alpha(45) } else { Color32::from_black_alpha(10) },
                             Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 35 } else { 18 }),
@@ -498,33 +502,52 @@ pub fn show(
                             }
                         }
 
-                        child_ui.add_space(3.0);
+                        child_ui.add_space(4.0);
 
-                        // 2) 匹配计数微徽章
+                        // 2) 全新重构的高级微透计数徽章 (Match Counter Pill)
                         let total_matches = tab.search_state.matches.len();
                         let current_idx = if total_matches == 0 { 0 } else { tab.search_state.active_match + 1 };
                         let has_query = !tab.search_state.query.trim().is_empty();
                         let count_text = format!("{current_idx}/{total_matches}");
-                        let (badge_bg, badge_fg) = if total_matches == 0 && has_query {
-                            (Color32::from_rgba_unmultiplied(225, 55, 45, 45), Color32::from_rgb(255, 100, 90))
+
+                        let (badge_bg, badge_stroke, badge_fg) = if total_matches == 0 && has_query {
+                            // 搜无结果：高级绯红微晶光晕
+                            (
+                                Color32::from_rgba_unmultiplied(225, 55, 45, 28),
+                                Color32::from_rgba_unmultiplied(235, 75, 65, 75),
+                                Color32::from_rgb(255, 120, 110),
+                            )
+                        } else if total_matches > 0 {
+                            // 搜索命中：融入活跃标签卡片的主题微光
+                            (
+                                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 40 } else { 25 }),
+                                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 90 } else { 60 }),
+                                Color32::WHITE,
+                            )
                         } else {
-                            (if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(8) }, text_sub)
+                            // 空态：极简微透基底
+                            (
+                                if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(8) },
+                                if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) },
+                                text_sub,
+                            )
                         };
 
-                        let (badge_rect, _) = child_ui.allocate_exact_size(vec2(36.0, 20.0), Sense::hover());
+                        let (badge_rect, _) = child_ui.allocate_exact_size(vec2(38.0, 20.0), Sense::hover());
                         let p_b = child_ui.painter();
-                        p_b.rect_filled(badge_rect, 6.0, badge_bg);
-                        p_b.text(badge_rect.center(), Align2::CENTER_CENTER, count_text, FontId::proportional(11.0), badge_fg);
+                        p_b.rect_filled(badge_rect, 5.0, badge_bg);
+                        p_b.rect_stroke(badge_rect, 5.0, egui::Stroke::new(0.5, badge_stroke), egui::StrokeKind::Inside);
+                        p_b.text(badge_rect.center(), Align2::CENTER_CENTER, count_text, FontId::new(11.0, egui::FontFamily::Monospace), badge_fg);
 
-                        child_ui.add_space(2.0);
+                        child_ui.add_space(3.0);
 
-                        // 3) 发丝级垂直微分割线
+                        // 3) 发丝级垂直微分割线（绝对垂直居中，高度 14px）
                         let (sep_rect, _) = child_ui.allocate_exact_size(vec2(1.0, 14.0), Sense::hover());
-                        child_ui.painter().rect_filled(sep_rect, 0.0, if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) });
+                        child_ui.painter().rect_filled(sep_rect, 0.0, if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) });
 
-                        child_ui.add_space(2.0);
+                        child_ui.add_space(3.0);
 
-                        // 4) ▲ 上一个按钮（高亮度矢量 Chevron 与平滑微光渐变）
+                        // 4) ▲ 上一个按钮（高亮度矢量 Chevron，绝对垂直居中高度 22px）
                         let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
                         let prev_hf = child_ui.ctx().animate_bool(Id::new(("find_prev_h", session.id)), prev_resp.hovered());
                         let prev_bg = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (prev_hf * (if dark { 45.0 } else { 30.0 })) as u8);
@@ -541,7 +564,7 @@ pub fn show(
                             go_prev = true;
                         }
 
-                        // 5) ▼ 下一个按钮（高亮度矢量 Chevron 与平滑微光渐变）
+                        // 5) ▼ 下一个按钮（高亮度矢量 Chevron，绝对垂直居中高度 22px）
                         let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
                         let next_hf = child_ui.ctx().animate_bool(Id::new(("find_next_h", session.id)), next_resp.hovered());
                         let next_bg = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (next_hf * (if dark { 45.0 } else { 30.0 })) as u8);
