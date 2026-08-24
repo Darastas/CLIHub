@@ -287,25 +287,31 @@ impl Terminal {
             }
             let row = &grid[Line(actual_line)];
             
-            // 动态计算当前行真实文本内容的末尾列
+            // 动态计算当前行真实文本内容的起始列与末尾列
+            let mut content_start = 0;
+            let mut found_start = false;
             let mut content_end = 0;
             for col in 0..self.cols as usize {
                 if col >= row.len() { break; }
                 let cell = &row[Column(col)];
                 if cell.c != ' ' && !cell.flags.contains(alacritty_terminal::term::cell::Flags::HIDDEN) {
+                    if !found_start {
+                        content_start = col;
+                        found_start = true;
+                    }
                     let w = if cell.flags.contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR) { 2 } else { 1 };
                     content_end = (col + w).min(self.cols as usize);
                 }
             }
 
             let (sc, ec) = if start_line == end_line {
-                (start_col, (end_col + 1).min(content_end))
+                (start_col.max(content_start), (end_col + 1).min(content_end))
             } else if actual_line == start_line {
-                (start_col, content_end)
+                (start_col.max(content_start), content_end)
             } else if actual_line == end_line {
-                (0, (end_col + 1).min(content_end))
+                (content_start, (end_col + 1).min(content_end))
             } else {
-                (0, content_end)
+                (content_start, content_end)
             };
 
             if sc >= ec {
