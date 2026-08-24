@@ -13,7 +13,11 @@
 
 ---
 
-![CLIHub Screenshot](Example.png)
+![CLIHub Terminal View](Example.png)
+
+<br/>
+
+![CLIHub Overview View](Example-Overview.png)
 
 ---
 
@@ -28,6 +32,7 @@ In today's AI-driven development workflow, developers often juggle multiple AI a
 CLIHub solves this by offering:
 
 - **Centralized Management** — Save your frequently used commands (AI agents or regular environments) as persistent Sessions. One click to launch or switch — no more hunting for terminal windows.
+- **Global Overview Dashboard** — Inspect all running sessions in a real-time responsive multi-grid dashboard, jump into any session/tab with a click, or toggle with `Ctrl+Shift+O`.
 - **Premium Aesthetics** — macOS-inspired frameless window design with frosted glass textures, hover animations, and a fully adaptive multi-theme system built on Egui.
 - **Hardcore Foundation** — Perfect compatibility with any modern CLI program requiring true-color and specialized environment injection.
 
@@ -38,10 +43,13 @@ CLIHub solves this by offering:
   - Sidebar for centralized session management with persistent background processes.
   - Each session supports multiple parallel Tabs for seamless edit-run-monitor workflows.
   - Drag-and-drop reordering and inline editing for sessions and tabs.
+- 🔍 **Interactive Terminal Search** — Press `Ctrl+F` to summon the interactive frosted-glass search bar with case sensitivity toggles, match navigation (`▲`/`▼`), and live hit counting.
+- ⊞ **Global Sessions Overview** — Bird's-eye view of all terminal sessions in scaled live preview cards.
 - 🎨 **Top-Tier Visual Experience**
   - Immersive frameless window with smooth drag and resize.
   - Independent color system with classic schemes: Campbell, One Half, Solarized, Tango, and more.
-  - **OS-level smart theme sync**: Adapts Light/Dark mode across the entire UI, injects POSIX-standard `TERM`, `LANG`, `COLORFGBG` variables into PTY, and responds to `OSC 11` color queries — so AI tools and Oh My PI automatically match your current theme.
+  - **OS-level smart theme sync**: Adapts Light/Dark mode across the entire UI, injects POSIX-standard `TERM`, `LANG`, `COLORFGBG` variables into PTY, and responds to `OSC 11` color queries.
+- 🛡️ **Double-Press Ctrl+C Protection** — Floating acrylic HUD card with extended 1.8s tolerance window to prevent accidentally killing long-running AI processes.
 - 💾 **Instant Persistence** — All sessions, color preferences, and theme modes are saved in real-time and restored on next launch.
 
 ### Usage
@@ -51,9 +59,10 @@ CLIHub solves this by offering:
 2. Enter a **Name**, **Command** (e.g., `codex`, `claude`, `omp`), and an optional **Working directory**.
 3. Click to launch or switch; hover to edit or drag to reorder.
 
-#### Tabs
+#### Tabs & Overview
 - Click **`+`** next to the tab bar to spawn a new tab within the current session context.
-- Hover over a tab to close it with `×`.
+- Click the **`⊞`** button in the sidebar (or press `Ctrl+Shift+O`) to open the Global Sessions Overview.
+- Press `Ctrl+F` in any terminal tab to open the interactive search bar.
 
 #### Theme & Appearance
 - Click **Settings** next to the CLIHub logo.
@@ -82,6 +91,13 @@ cargo build --release  # Release build
 ```
 
 ### Releases & Changelog
+
+#### v1.0.0
+- **Global Sessions Overview (全景多会话看板)**: Real-time multi-grid live preview dashboard for all sessions with one-click navigation and clean vector 2x2 grid UI (`Ctrl+Shift+O`).
+- **Interactive In-Terminal Search (终端交互搜索)**: Integrated `Ctrl+F` frosted search capsule with case-sensitivity matching, occurrence badge, and navigation controls.
+- **Unified Design & Top-Bar Alignment**: Perfect subpixel baseline alignment across sidebar title, session buttons, tab cards, and search container.
+- **Refined Acrylic Ctrl+C Guard**: Re-engineered frosted glass HUD with centered typography and extended 1.8s double-press grace period.
+- **Native Multi-Architecture Releases**: Official binaries compiled for Windows x64, x86, and ARM64.
 
 #### v0.1.2
 - **Native Clipboard & Selection Copying**: Win32 direct clipboard API integration, QuickEdit auto-copy on mouse release, right-click actions, and standard terminal shortcuts.
