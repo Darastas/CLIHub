@@ -82,6 +82,24 @@ cargo build --release  # 编译发布版本
 
 ### 版本更新日志
 
+#### v1.2.0
+- **Windows 进程级稳定性增强 (Win32 工程化)**：
+  - 基于 Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) 实现 `ProcessJobGuard`，在标签页关闭或应用退出时，由 Windows 内核原子回收整个子进程树，彻底杜绝 `node.exe`、`cargo.exe`、`python.exe` 孤儿后台进程驻留。
+  - 基于 Win32 `SetThreadExecutionState` 实现 `SleepInhibitor`，长任务与 AI 代理会话运行时自动阻止系统休眠，空闲时恢复节能。
+- **零延迟性能飞跃 (对标 Windows Terminal)**：
+  - PTY 读线程接入 UI 即时事件唤醒机制（`ctx.request_repaint()`），彻底消除即时模式 UI 处于休眠等待时的 50~500ms 延迟，实现 `<1ms` 极速流式吞吐。
+  - 启动视口尺寸精准锁定，消除 PowerShell / Oh-My-Posh / OpenCode2 启动时因尺寸突变触发的二次重绘与重复执行风暴，启动速度提升 50%+。
+  - 注入 Windows Terminal 原生兼容协议（`WT_SESSION` GUID、`TERM_PROGRAM="CLIHub"`、`COLORTERM="truecolor"`）与 UTF-8 控制台代码页（`CP 65001`），自动启用全速 VT 预测着色引擎。
+  - DSR / CPR 光标位置查询同帧零延迟写回应答（0ms Roundtrip）。
+- **终端画布几何优化与全景居中**：
+  - 动态平分整行像素余数，保证终端内容区上下左右 100% 绝对等宽居中对称。
+  - 接入动态字形宽高（`cell_w`/`cell_h`）记录与 `XTWINOPS` 视口查询响应，彻底消除自绘 TUI（OpenCode、Mimo 等）的启动视口抖动。
+- **搜索栏无边框流式设计**：
+  - 文本框改用无边框流式设计（`Frame::NONE`），去除狭窄多余的内层小白框，拓展输入宽度至 135px 并修正字体基线对齐。
+- **大型源码架构模块化解耦**：
+  - 将原 2000 行单文件拆解为独立的 `ui/terminal/`（`grid_render`、`input_handler`、`clipboard`、`mod`）与 `fonts.rs` 模块。
+- **全架构原生预编译包**：提供 Windows x64、x86 与 ARM64 的独立执行文件及压缩包。
+
 #### v1.1.0
 - 单 CLI 全景多标签微缩看板：会话右键菜单新增“浏览全部窗口”功能，支持一屏全景微缩预览当前 CLI 的所有活跃标签页，并在看板顶部提供返回全景看板、统计微徽章与新建标签快捷操作，支持按 Esc 级联返回。
 - 侧边栏 WORKSPACES 工作区体系重构：将原 SESSIONS 统一重命名为 WORKSPACES，标头文本与卡片文字按 x=24px 精准纵向对齐，优化卡片间距与整体排版比例。

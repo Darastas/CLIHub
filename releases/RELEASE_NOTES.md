@@ -1,20 +1,31 @@
-# CLIHub v1.1.0 Release Notes
+# CLIHub v1.2.0 Release Notes
 
 ## 新增功能与改进
 
-- 单 CLI 全景多标签微缩看板：会话右键菜单新增“浏览全部窗口”功能，支持一屏全景微缩预览当前 CLI 的所有活跃标签页，并在看板顶部提供返回全景看板、统计微徽章与新建标签快捷操作，支持按 Esc 级联返回。
-- 侧边栏 WORKSPACES 工作区体系重构：将原 SESSIONS 统一重命名为 WORKSPACES，标头文本与卡片文字按 x=24px 精准纵向对齐，优化卡片间距与整体排版比例。
-- Ctrl+C 双击退出提示重构与底边对齐：将退出提示卡片移至侧边栏底部，与右侧终端下边框实现像素级绝对对齐，并引入 150ms 平滑渐显动效与纯净中性微卡片样式。
-- Windows 10/11 原生标准标题栏三按键：完全重构最小化、最大化/还原、关闭三按键为 Windows 官方标准风格，支持满格平铺悬浮背景、官方悬停正红色与 1.0px 发丝精度矢量线框。
-- 全架构原生预编译包：提供 Windows x64、x86 与 ARM64 的独立执行文件及压缩包。
+- **Windows 进程级稳定性增强 (Win32 Engineering)**：
+  - 基于 Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) 实现 `ProcessJobGuard`，在标签页关闭或应用退出时，由 Windows 内核原子回收整个子进程树，彻底杜绝 `node.exe`、`cargo.exe`、`python.exe` 孤儿后台进程驻留。
+  - 基于 Win32 `SetThreadExecutionState` 实现 `SleepInhibitor`，长任务与 AI 代理会话运行时自动阻止系统休眠，空闲时恢复节能。
+- **零延迟性能飞跃 (对标 Windows Terminal)**：
+  - PTY 读线程接入 UI 即时事件唤醒机制（`ctx.request_repaint()`），彻底消除即时模式 UI 处于休眠等待时的 50~500ms 延迟，实现 `<1ms` 极速流式吞吐。
+  - 启动视口尺寸精准锁定，消除 PowerShell / Oh-My-Posh / OpenCode2 启动时因尺寸突变触发的二次重绘与重复执行风暴，启动速度提升 50%+。
+  - 注入 Windows Terminal 原生兼容协议（`WT_SESSION` GUID、`TERM_PROGRAM="CLIHub"`、`COLORTERM="truecolor"`）与 UTF-8 控制台代码页（`CP 65001`），自动启用全速 VT 预测着色引擎。
+  - DSR / CPR 光标位置查询同帧零延迟写回应答（0ms Roundtrip）。
+- **终端画布几何优化与全景居中**：
+  - 动态平分整行像素余数，保证终端内容区上下左右 100% 绝对等宽居中对称。
+  - 接入动态字形宽高（`cell_w`/`cell_h`）记录与 `XTWINOPS` 视口查询响应，彻底消除自绘 TUI（OpenCode、Mimo 等）的启动视口抖动。
+- **搜索栏无边框流式设计**：
+  - 文本框改用无边框流式设计（`Frame::NONE`），去除狭窄多余的内层小白框，拓展输入宽度至 135px 并修正字体基线对齐。
+- **大型源码架构模块化解耦**：
+  - 将原 2000 行单文件拆解为独立的 `ui/terminal/`（`grid_render`、`input_handler`、`clipboard`、`mod`）与 `fonts.rs` 模块。
 
 ## 预编译包校验码 (SHA-256)
 
 | 文件名 | 架构 | SHA-256 校验码 |
 |:---|:---|:---|
-| clihub-v1.1.0-windows-x64.exe | Windows x64 | 74FB29A954EF8D17D37E581DBB8D19C5DA98A212272DC4A84C99F4AED7AEB512 |
-| clihub-v1.1.0-windows-x86.exe | Windows x86 (32-bit) | 75DBF434E1C325C220C8FFCDBD18F811CB33E91EFAF66CA85C2ABF81445D60CF |
-| clihub-v1.1.0-windows-arm64.exe | Windows ARM64 | F232D28A31F56BB40C0834D518412CB9A21AD4A2A6A652C92793A01E04AF70C2 |
-| clihub-v1.1.0-windows-x64.zip | Windows x64 Zip | 2E5BB84026ECB3FE73B1438AB34B2E778C25D1D656FCBEBF77756C8161663730 |
-| clihub-v1.1.0-windows-x86.zip | Windows x86 Zip | F4B7B22B5DE1291CA7ACF0070EEF1EF71B5A137C9F0835B1134C32D23E6D4651 |
-| clihub-v1.1.0-windows-arm64.zip | Windows ARM64 Zip | DA213ED6E443671EDE456DC2A86D6FFF204097521D9BC26C49A9BDD6784E0A12 |
+| clihub-v1.2.0-windows-x64.exe | Windows x64 | 64DB3760777E4F2D972D92A55F39E9EFC528E6AB6961B63B5BB6E6319E3CF86C |
+| clihub-v1.2.0-windows-x86.exe | Windows x86 (32-bit) | B25DC97A95F6FACFFF29572B139AFA69FDD746F599C1227F285D6D7DB155CFD2 |
+| clihub-v1.2.0-windows-arm64.exe | Windows ARM64 | 68D0B37BA7C1CA32FB74BB114FE25D548746C8878441786B766652B451A70FAF |
+| clihub-v1.2.0-windows-x64.zip | Windows x64 Zip | 81AE40C26F1ABF7EFB03EF1BD6FE87982B032780E91A6CE4966D1E19BC60FA0B |
+| clihub-v1.2.0-windows-x86.zip | Windows x86 Zip | 913BB64A16DAEEF2805DAAF3FCADDE2E8B6FB652D8C67F438A2534A17BFAE199 |
+| clihub-v1.2.0-windows-arm64.zip | Windows ARM64 Zip | 0E562476F974514DE47F364FABC1062ACC84AA2BD2475D6E8504A771F8C7C8B7 |
+

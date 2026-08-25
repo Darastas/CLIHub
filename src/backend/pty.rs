@@ -98,7 +98,7 @@ impl PtyHandle {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "CLIHub");
-        cmd.env("TERM_PROGRAM_VERSION", "1.1.0");
+        cmd.env("TERM_PROGRAM_VERSION", "1.2.0");
         cmd.env("WSLENV", "WT_SESSION/w:TERM/w:COLORTERM/w:TERM_PROGRAM/w");
 
         // 告诉终端应用当前的明暗主题，这样 omp、inquirer 以及 codex 等交互提示可以自适应颜色

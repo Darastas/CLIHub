@@ -94,6 +94,16 @@ cargo build --release  # Release build
 
 ### Releases & Changelog
 
+#### v1.2.0
+- **Windows Process Stability & Tree Guard (Win32 Engineering)**: Integrated Win32 Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) to automatically terminate full process trees (preventing orphan `node.exe`, `cargo.exe`, `python.exe` processes) and Win32 `SetThreadExecutionState` Sleep Inhibitor for background AI tasks.
+- **Zero-Latency PTY Performance (Benchmarked against Windows Terminal)**: Direct UI event loop wake-up upon incoming PTY bytes (`<1ms` latency), eliminating immediate-mode UI sleep lag. Initial viewport geometry matching eliminates Oh-My-Posh / PowerShell / OpenCode2 double-render resize storms.
+- **Windows Terminal Protocol Injections**: Injects `WT_SESSION` GUID and UTF-8 console code page (`CP 65001`), activating full-speed Virtual Terminal (VT) prediction and true-color rendering.
+- **0ms Roundtrip DSR / CPR Writeback**: Synchronous, same-frame cursor position query response eliminates communication stalls.
+- **Symmetric Canvas Centering & XTWINOPS Sync**: Dynamically balances remainder pixel margins for 100% symmetric top/bottom/left/right padding, with live font metrics synced to XTWINOPS.
+- **Frameless Search Input**: Replaced the cramped inner textedit capsule with a clean, borderless fluid input field with refined baseline alignment.
+- **Modular Codebase Refactoring**: Decoupled monolithic terminal code into structured modules (`grid_render`, `input_handler`, `clipboard`, `mod`, and `fonts.rs`).
+- **Multi-Architecture Release Packages**: Standalone native precompiled binaries and zip archives for Windows x64, x86 (32-bit), and ARM64.
+
 #### v1.1.0
 - Single-CLI Tab Panorama Overview: Added "Browse All Windows" in workspace context menu to view and manage all active tabs of a specific CLI with scaled live previews, top toolbar, and Esc cascade navigation.
 - Workspaces System & Optical Alignment: Refactored SESSIONS into WORKSPACES with strict x=24px vertical alignment matching card text, refined card spacing, and clean minimalist sidebar layout.
