@@ -158,32 +158,17 @@ pub fn show(
     let (header_row_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
     let row_center_y = header_row_rect.center().y;
 
-    // 1. WORKSPACES 标题与数量胶囊：绝对垂直居中对齐水平中心线
+    // 1. WORKSPACES 标题：与下方卡片内文字 (x = 24.0) 精准垂直对齐
     let p = ui.painter();
     let title_font = FontId::new(11.5, egui::FontFamily::Proportional);
     let title_color = if dark { Color32::from_gray(165) } else { Color32::from_gray(95) };
     p.text(
-        Pos2::new(header_row_rect.min.x + 14.0, row_center_y),
+        Pos2::new(header_row_rect.min.x + 24.0, row_center_y),
         Align2::LEFT_CENTER,
         "WORKSPACES",
-        title_font.clone(),
+        title_font,
         title_color,
     );
-
-    let title_w = p.layout_no_wrap("WORKSPACES".to_string(), title_font, title_color).rect.width();
-
-    // 数量微胶囊
-    let count_str = format!("{}", sessions.len());
-    let count_font = FontId::new(10.0, egui::FontFamily::Proportional);
-    let count_w = p.layout_no_wrap(count_str.clone(), count_font.clone(), Color32::WHITE).rect.width();
-    let count_badge_w = (count_w + 10.0).max(18.0);
-    let count_rect = Rect::from_center_size(
-        Pos2::new(header_row_rect.min.x + 14.0 + title_w + 8.0 + count_badge_w / 2.0, row_center_y),
-        vec2(count_badge_w, 16.0),
-    );
-    p.rect_filled(count_rect, 4.0, if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(8) });
-    p.rect_stroke(count_rect, 4.0, egui::Stroke::new(0.5, if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(12) }), egui::StrokeKind::Inside);
-    p.text(count_rect.center(), Align2::CENTER_CENTER, count_str, count_font, if dark { Color32::from_white_alpha(150) } else { Color32::from_black_alpha(150) });
 
     // 2. ＋ 新增按钮（右侧边缘留 12px 边距，垂直严格对齐水平中心线）
     let plus_center = Pos2::new(header_row_rect.max.x - 12.0 - 12.0, row_center_y);
@@ -333,12 +318,10 @@ pub fn show(
     let active_ctrl_c = sessions.get(selected).and_then(|s| s.tabs.get(s.active_tab)).and_then(|t| t.last_ctrl_c);
     let p = ui.painter();
 
-    let mut is_ctrl_c_showing = false;
     if let Some(last) = active_ctrl_c {
         let elapsed_ms = last.elapsed().as_millis();
         const CTRL_C_TIMEOUT_MS: u128 = 1800;
         if elapsed_ms <= CTRL_C_TIMEOUT_MS {
-            is_ctrl_c_showing = true;
             let fade_t = if elapsed_ms < 1000 {
                 1.0
             } else {
@@ -381,22 +364,6 @@ pub fn show(
         }
     }
 
-    if !is_ctrl_c_showing {
-        // 常态下显示淡雅的工作区计数与运行状态
-        let running_count = sessions.iter().filter(|s| s.status() == crate::state::SessionStatus::Running).count();
-        let footer_text = if running_count > 0 {
-            format!("{} 个工作区 · {} 运行中", sessions.len(), running_count)
-        } else {
-            format!("{} 个工作区", sessions.len())
-        };
-        p.text(
-            notif_rect.center(),
-            Align2::CENTER_CENTER,
-            footer_text,
-            FontId::new(11.0, egui::FontFamily::Proportional),
-            muted(dark).gamma_multiply(0.65),
-        );
-    }
 
     action
 }
