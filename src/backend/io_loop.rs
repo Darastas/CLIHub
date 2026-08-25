@@ -10,7 +10,7 @@ use crate::backend::terminal::Terminal;
 /// 返回本次处理的总字节数。
 pub fn drain(rx: &Receiver<Vec<u8>>, terminal: &mut Option<Terminal>) -> usize {
     let mut total = 0usize;
-    let mut batch = Vec::new();
+    let mut batch = Vec::with_capacity(32768);
 
     while let Ok(chunk) = rx.try_recv() {
         total += chunk.len();

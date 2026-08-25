@@ -2,5 +2,7 @@
 
 pub mod io_loop;
 pub mod notification;
+pub mod process_guard;
 pub mod pty;
+pub mod sleep_inhibitor;
 pub mod terminal;

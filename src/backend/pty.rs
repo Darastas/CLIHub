@@ -8,6 +8,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use crossbeam_channel::{unbounded, Receiver};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+
+use crate::backend::process_guard::ProcessJobGuard;
+
 /// 一个被 PTY 接管的子进程及其读写端。
 pub struct PtyHandle {
     pub master: Box<dyn MasterPty + Send>,
@@ -15,6 +18,9 @@ pub struct PtyHandle {
     pub child: Box<dyn Child + Send + Sync>,
     /// 进程存活标志；reader 线程在 EOF/出错时置为 false
     pub alive: Arc<AtomicBool>,
+    /// Windows Job Object 进程树清理守卫（持有以确保生命周期与 PtyHandle 一致）
+    #[allow(dead_code)]
+    pub job_guard: Option<ProcessJobGuard>,
     /// 上次 resize 的行列，防重复触发 ConPTY 重绘
     cols: u16,
     rows: u16,
@@ -31,7 +37,18 @@ impl PtyHandle {
         rows: u16,
         cols: u16,
         dark_mode: bool,
+        ctx: Option<egui::Context>,
     ) -> Result<(Self, Receiver<Vec<u8>>)> {
+        #[cfg(windows)]
+        unsafe {
+            unsafe extern "system" {
+                fn SetConsoleCP(wCodePageID: u32) -> i32;
+                fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
+            }
+            SetConsoleCP(65001);
+            SetConsoleOutputCP(65001);
+        }
+
         let pty_system = native_pty_system();
         let size = PtySize {
             rows,
@@ -63,10 +80,27 @@ impl PtyHandle {
         for (k, v) in std::env::vars() {
             cmd.env(k, v);
         }
-        // 显式声明终端类型和真色彩支持，这样 omp/claude/codex 就会输出彩色图标/渐变色
+        // 显式声明终端类型、真色彩支持与 Windows Terminal 兼容标志
+        // PSReadLine / Oh-My-Posh / OpenCode 检测到 WT_SESSION 后会自动启用全速 VT 引擎与预测着色，绕过慢速 conhost 缓冲区调用
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let wt_guid = format!("{:08x}-{:04x}-4{:03x}-a{:03x}-{:012x}",
+            (nanos & 0xFFFFFFFF) as u32,
+            ((nanos >> 32) & 0xFFFF) as u16,
+            ((nanos >> 48) & 0x0FFF) as u16,
+            ((nanos >> 60) & 0x0FFF) as u16,
+            ((nanos >> 72) & 0xFFFFFFFFFFFF) as u64
+        );
+        cmd.env("WT_SESSION", wt_guid);
+        cmd.env("WT_PROFILE_ID", "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}");
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "CLIHub");
+        cmd.env("TERM_PROGRAM_VERSION", "1.1.0");
+        cmd.env("WSLENV", "WT_SESSION/w:TERM/w:COLORTERM/w:TERM_PROGRAM/w");
+
         // 告诉终端应用当前的明暗主题，这样 omp、inquirer 以及 codex 等交互提示可以自适应颜色
         if dark_mode {
             cmd.env("COLORFGBG", "15;0"); // 白字黑底
@@ -108,6 +142,14 @@ impl PtyHandle {
         // 释放 slave 端，只有 master 保留在父进程
         drop(pair.slave);
 
+        // Windows 上将子进程绑定到 Job Object，防止子进程及其子孙工具脱离为孤儿进程
+        let job_guard = ProcessJobGuard::new();
+        if let Some(guard) = &job_guard {
+            if let Some(pid) = child.process_id() {
+                guard.assign_process_by_id(pid);
+            }
+        }
+
         let master = pair.master;
         let mut reader = master.try_clone_reader().context("克隆 reader 失败")?;
         let writer = master.take_writer().context("获取 writer 失败")?;
@@ -116,11 +158,11 @@ impl PtyHandle {
         let alive = Arc::new(AtomicBool::new(true));
         let reader_alive = alive.clone();
 
-        // 后台死循环：阻塞读 PTY，经 channel 推送，避免卡死 UI 线程。
+        // 后台死循环：阻塞读 PTY，经 channel 推送，并即时唤醒 egui 事件循环，实现 <1ms 零延迟极速响应
         std::thread::Builder::new()
             .name("pty-reader".to_string())
             .spawn(move || {
-                let mut buf = [0u8; 16384];
+                let mut buf = [0u8; 65536];
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) | Err(_) => break,
@@ -128,10 +170,16 @@ impl PtyHandle {
                             if tx.send(buf[..n].to_vec()).is_err() {
                                 break;
                             }
+                            if let Some(c) = &ctx {
+                                c.request_repaint();
+                            }
                         }
                     }
                 }
                 reader_alive.store(false, Ordering::SeqCst);
+                if let Some(c) = &ctx {
+                    c.request_repaint();
+                }
             })?;
 
         Ok((
@@ -140,6 +188,7 @@ impl PtyHandle {
                 writer,
                 child,
                 alive,
+                job_guard,
                 cols,
                 rows,
             },
@@ -274,7 +323,7 @@ mod tests {
     #[ignore]
     fn cmd_raw_output() {
         let cwd = std::env::current_dir().unwrap();
-        let (handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true).expect("spawn cmd");
+        let (handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true, None).expect("spawn cmd");
         std::thread::sleep(std::time::Duration::from_secs(2));
         let mut all = Vec::new();
         while let Ok(chunk) = rx.try_recv() {
@@ -297,7 +346,7 @@ mod tests {
         use crate::backend::terminal::{Terminal, TermThemeColors};
 
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true).unwrap();
+        let (mut handle, rx) = PtyHandle::spawn("cmd", &[], &cwd, 24, 80, true, None).unwrap();
         let mut term = Terminal::new(24, 80, TermThemeColors::default());
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
@@ -341,7 +390,7 @@ mod tests {
         use crate::backend::terminal::{Terminal, TermThemeColors};
 
         let cwd = std::env::current_dir().unwrap();
-        let (mut handle, rx) = PtyHandle::spawn("claude", &[], &cwd, 30, 100, true).unwrap();
+        let (mut handle, rx) = PtyHandle::spawn("claude", &[], &cwd, 30, 100, true, None).unwrap();
         let mut term = Terminal::new(30, 100, TermThemeColors::default());
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
@@ -387,7 +436,7 @@ mod tests {
     fn spawn_claude_real() {
         let cwd = std::env::current_dir().unwrap();
         let (handle, rx) =
-            PtyHandle::spawn("claude", &[], &cwd, 24, 80, true).expect("spawn claude 失败");
+            PtyHandle::spawn("claude", &[], &cwd, 24, 80, true, None).expect("spawn claude 失败");
         std::thread::sleep(std::time::Duration::from_secs(3));
         assert!(
             handle.alive.load(Ordering::SeqCst),

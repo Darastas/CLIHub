@@ -1,17 +1,19 @@
 //! 右侧主区域：基于 alacritty 字符网格的终端渲染 + 原始按键转发。
-//!
-//! - 渲染：每行先画背景色块（按连续同色合并），再按 (fg/bold/underline)
-//!   分组生成 LayoutJob 画字；宽字符（CJK）由 WIDE_CHAR 标志处理。
-//! - 输入：终端区获得焦点后，把 `Event::Text/Key/Paste` 转成字节流写回 PTY。
-//! - 缩放：按面板尺寸 × 字体度量计算行列数，同步 PTY 与网格。
+
+pub mod clipboard;
+pub mod grid_render;
+pub mod input_handler;
+
+pub use clipboard::{get_clipboard_text, set_clipboard_text};
+#[allow(unused_imports)]
+pub use grid_render::{is_graphic_char, luminance, paint_grid, resolve_cell, resolve_color, rgb_to_color32};
+pub use input_handler::{forward_keys, handle_scroll};
 
 use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::term::cell::{Cell, Flags};
-use alacritty_terminal::term::color::Colors;
-use alacritty_terminal::vte::ansi::{Color as TermColor, Rgb};
-use egui::{Align2, Color32, FontId, Id, Modifiers, Pos2, Rect, Sense, Ui, vec2};
+use alacritty_terminal::vte::ansi::Rgb;
+use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Sense, Ui, vec2};
 
-use crate::state::{Session, TerminalInstance};
+use crate::state::Session;
 
 /// 标签栏/终端区触发的动作，由 App 层执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +26,7 @@ pub enum TerminalAction {
     KillTab(usize),
 }
 
-/// 终端配色主题（浅色）。
+/// 终端配色主题。
 pub struct TermTheme {
     pub font_size: f32,
     /// 终端等宽字体族（JetBrains Mono）
@@ -115,47 +117,20 @@ impl TermTheme {
                     Color32::from_rgb(203, 75, 22),
                     Color32::from_rgb(88, 110, 117),
                     Color32::from_rgb(101, 123, 131),
-                    Color32::from_rgb(131, 148, 150),
+                    Color32::from_rgb(147, 161, 161),
                     Color32::from_rgb(108, 113, 196),
                     Color32::from_rgb(147, 161, 161),
                     Color32::from_rgb(253, 246, 227),
                 ],
                 sidebar_card_color: None,
             },
-            "Tango Dark" => Self {
+            "Solarized Light" => Self {
                 font_size: 15.0,
                 font_family: egui::FontFamily::Monospace,
                 bold_family: egui::FontFamily::Monospace,
-                background: Color32::from_rgb(0, 0, 0),
-                foreground: Color32::from_rgb(211, 215, 207),
-                cursor: Color32::from_rgb(255, 255, 255),
-                ansi: [
-                    Color32::from_rgb(0, 0, 0),
-                    Color32::from_rgb(204, 0, 0),
-                    Color32::from_rgb(78, 154, 6),
-                    Color32::from_rgb(196, 160, 0),
-                    Color32::from_rgb(52, 101, 164),
-                    Color32::from_rgb(117, 80, 123),
-                    Color32::from_rgb(6, 152, 154),
-                    Color32::from_rgb(211, 215, 207),
-                    Color32::from_rgb(85, 87, 83),
-                    Color32::from_rgb(239, 41, 41),
-                    Color32::from_rgb(138, 226, 52),
-                    Color32::from_rgb(252, 233, 79),
-                    Color32::from_rgb(114, 159, 207),
-                    Color32::from_rgb(173, 127, 168),
-                    Color32::from_rgb(52, 226, 226),
-                    Color32::from_rgb(238, 238, 236),
-                ],
-                sidebar_card_color: None,
-            },
-            "Readable Solar Light" => Self {
-                font_size: 15.0,
-                font_family: egui::FontFamily::Monospace,
-                bold_family: egui::FontFamily::Monospace,
-                background: Color32::from_rgb(244, 245, 244), // F4F5F4 background
-                foreground: Color32::from_rgb(101, 123, 131), // 657B83 foreground
-                cursor: Color32::from_rgb(88, 110, 117), // 586E75 cursor
+                background: Color32::from_rgb(253, 246, 227),
+                foreground: Color32::from_rgb(101, 123, 131),
+                cursor: Color32::from_rgb(101, 123, 131),
                 ansi: [
                     Color32::from_rgb(7, 54, 66),
                     Color32::from_rgb(220, 50, 47),
@@ -169,37 +144,64 @@ impl TermTheme {
                     Color32::from_rgb(203, 75, 22),
                     Color32::from_rgb(88, 110, 117),
                     Color32::from_rgb(101, 123, 131),
-                    Color32::from_rgb(131, 148, 150),
+                    Color32::from_rgb(147, 161, 161),
                     Color32::from_rgb(108, 113, 196),
                     Color32::from_rgb(147, 161, 161),
                     Color32::from_rgb(253, 246, 227),
                 ],
                 sidebar_card_color: None,
             },
-            "Campbell" | _ => Self {
+            "Nord" => Self {
                 font_size: 15.0,
                 font_family: egui::FontFamily::Monospace,
                 bold_family: egui::FontFamily::Monospace,
-                background: Color32::from_rgb(12, 12, 12),
+                background: Color32::from_rgb(46, 52, 64),
+                foreground: Color32::from_rgb(216, 222, 233),
+                cursor: Color32::from_rgb(216, 222, 233),
+                ansi: [
+                    Color32::from_rgb(59, 66, 82),
+                    Color32::from_rgb(191, 97, 106),
+                    Color32::from_rgb(163, 190, 140),
+                    Color32::from_rgb(235, 203, 139),
+                    Color32::from_rgb(129, 161, 193),
+                    Color32::from_rgb(180, 142, 173),
+                    Color32::from_rgb(136, 192, 208),
+                    Color32::from_rgb(229, 233, 240),
+                    Color32::from_rgb(76, 86, 106),
+                    Color32::from_rgb(191, 97, 106),
+                    Color32::from_rgb(163, 190, 140),
+                    Color32::from_rgb(235, 203, 139),
+                    Color32::from_rgb(129, 161, 193),
+                    Color32::from_rgb(180, 142, 173),
+                    Color32::from_rgb(143, 188, 187),
+                    Color32::from_rgb(236, 239, 244),
+                ],
+                sidebar_card_color: None,
+            },
+            _ => Self {
+                font_size: 15.0,
+                font_family: egui::FontFamily::Monospace,
+                bold_family: egui::FontFamily::Monospace,
+                background: Color32::from_rgb(30, 30, 30),
                 foreground: Color32::from_rgb(204, 204, 204),
                 cursor: Color32::from_rgb(255, 255, 255),
                 ansi: [
-                    Color32::from_rgb(12, 12, 12),
-                    Color32::from_rgb(197, 15, 31),
-                    Color32::from_rgb(19, 161, 14),
-                    Color32::from_rgb(193, 156, 0),
-                    Color32::from_rgb(0, 55, 218),
-                    Color32::from_rgb(136, 23, 152),
-                    Color32::from_rgb(58, 150, 221),
-                    Color32::from_rgb(204, 204, 204),
-                    Color32::from_rgb(118, 118, 118),
-                    Color32::from_rgb(231, 72, 86),
-                    Color32::from_rgb(22, 198, 12),
-                    Color32::from_rgb(249, 241, 165),
-                    Color32::from_rgb(59, 120, 255),
-                    Color32::from_rgb(180, 0, 158),
-                    Color32::from_rgb(97, 214, 214),
-                    Color32::from_rgb(242, 242, 242),
+                    Color32::from_rgb(0, 0, 0),
+                    Color32::from_rgb(205, 49, 49),
+                    Color32::from_rgb(13, 188, 121),
+                    Color32::from_rgb(229, 229, 16),
+                    Color32::from_rgb(36, 114, 200),
+                    Color32::from_rgb(188, 63, 188),
+                    Color32::from_rgb(17, 168, 205),
+                    Color32::from_rgb(229, 229, 229),
+                    Color32::from_rgb(102, 102, 102),
+                    Color32::from_rgb(241, 76, 76),
+                    Color32::from_rgb(35, 209, 139),
+                    Color32::from_rgb(245, 245, 67),
+                    Color32::from_rgb(59, 142, 234),
+                    Color32::from_rgb(214, 112, 214),
+                    Color32::from_rgb(41, 184, 219),
+                    Color32::from_rgb(255, 255, 255),
                 ],
                 sidebar_card_color: None,
             },
@@ -207,7 +209,6 @@ impl TermTheme {
         theme
     }
 
-    /// 应用自定义颜色覆盖。
     pub fn apply(&mut self, settings: &crate::config::ThemeSettings) {
         if let Some([r, g, b]) = settings.background {
             self.background = Color32::from_rgb(r, g, b);
@@ -218,12 +219,10 @@ impl TermTheme {
         self.sidebar_card_color = settings.sidebar_card_color;
     }
 
-    /// 终端是否为暗底（用于派生提示条等颜色）。
     pub fn is_dark(&self) -> bool {
         self.background.r() < 128 && self.background.g() < 128 && self.background.b() < 128
     }
 
-    /// 转换为 PTY OSC 响应使用的结构体。
     pub fn to_theme_colors(&self) -> crate::backend::terminal::TermThemeColors {
         let mut ansi = [Rgb { r: 0, g: 0, b: 0 }; 16];
         for i in 0..16 {
@@ -254,9 +253,6 @@ impl TermTheme {
     }
 }
 
-/// `input_enabled`：是否把键盘事件转发给 PTY（由 App 决定，如新增会话
-/// 对话框打开时禁止）。不依赖 egui 焦点，保证点击会话后即可打字。
-/// `theme`：终端配色（由 App 按配置构建）。
 pub fn show(
     ui: &mut Ui,
     session: &mut Session,
@@ -274,7 +270,7 @@ pub fn show(
         .auto_shrink([false, true])
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add_space(12.0); // 必须与下方终端区域的左外边距完全一致 (12.0)
+                ui.add_space(12.0);
                 for ti in 0..session.tabs.len() {
                     let is_active = ti == session.active_tab;
                     if let Some(a) = draw_tab(ui, session, ti, is_active, theme) {
@@ -283,11 +279,11 @@ pub fn show(
                     ui.add_space(8.0);
                 }
 
-                // 新增实例按钮（自然阴影与超细微边框）
+                // 新增实例按钮
                 let (plus_rect, plus_resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
                 let is_plus_hovered = plus_resp.hovered();
                 let plus_hover_factor = ui.ctx().animate_bool(Id::new(("plus_tab_hover", session.id)), is_plus_hovered);
-                
+
                 let plus_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
                 let plus_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
                 let plus_bg = Color32::from_rgba_premultiplied(
@@ -297,20 +293,19 @@ pub fn show(
                     (plus_base.a() as f32 * (1.0 - plus_hover_factor) + plus_hover.a() as f32 * plus_hover_factor).clamp(0.0, 255.0) as u8,
                 );
                 let plus_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
-                
+
                 let p = ui.painter();
-                // 柔和投影
                 let plus_shadow = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
                 p.rect_filled(plus_rect.translate(vec2(0.0, 1.5)), 12.0, plus_shadow);
-                // 卡片底色
                 p.rect_filled(plus_rect, 12.0, plus_bg);
-                // 极细微边框
                 p.rect_stroke(plus_rect, 12.0, egui::Stroke::new(0.5, plus_stroke), egui::StrokeKind::Inside);
-                
+
                 let plus_fg = if is_plus_hovered {
                     if dark { Color32::WHITE } else { Color32::BLACK }
+                } else if dark {
+                    Color32::from_gray(160)
                 } else {
-                    if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }
+                    Color32::from_gray(100)
                 };
                 p.text(
                     plus_rect.center(),
@@ -326,10 +321,9 @@ pub fn show(
 
                 ui.add_space(6.0);
 
-                // ---- Keynote / Apple 风格横向流体双向无冲击展开/收缩搜索栏 ----
+                // ---- 搜索栏 ----
                 let is_search_open = session.tabs.get(session.active_tab).map_or(false, |t| t.search_state.is_open);
                 let raw_expand_t = ui.ctx().animate_bool_with_time(Id::new(("search_tab_expand", session.id)), is_search_open, 0.28);
-                // 苹果双向对称平滑阻尼曲线 (Smoothstep / Ease In-Out)
                 let expand_factor = raw_expand_t * raw_expand_t * (3.0 - 2.0 * raw_expand_t);
 
                 let collapsed_w = 34.0;
@@ -349,24 +343,20 @@ pub fn show(
                     )
                 }
 
-                // 外层搜索框底座：纯净高质感中性磨砂亚克力（告别大面积紫色染色，回归高级黑灰微透与柔和发丝微边框）
                 let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
                 let hover_color = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
                 let search_bg = lerp_c(base_color, hover_color, bar_hover_factor);
 
-                // 发丝级微边框
                 let base_stroke = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(10) };
                 let hover_stroke = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(18) };
                 let search_stroke = lerp_c(base_stroke, hover_stroke, bar_hover_factor);
 
                 let p = ui.painter().with_clip_rect(search_rect);
-                // 长卡片专用沉浸式柔和中性投影
                 let shadow_alpha = (if dark { 50.0 } else { 12.0 } * (1.0 + bar_hover_factor * 0.2 + expand_factor * 0.25)) as u8;
                 p.rect_filled(search_rect.translate(vec2(0.0, 1.5)), 12.0, Color32::from_black_alpha(shadow_alpha));
                 p.rect_filled(search_rect, 12.0, search_bg);
                 p.rect_stroke(search_rect, 12.0, egui::Stroke::new(0.5, search_stroke), egui::StrokeKind::Inside);
 
-                // 收起时点击展开
                 if search_resp.on_hover_text("Search in Terminal (Ctrl+F)").clicked() && !is_search_open {
                     if let Some(tab) = session.tabs.get_mut(session.active_tab) {
                         tab.search_state.is_open = true;
@@ -384,7 +374,6 @@ pub fn show(
                     }
                 }
 
-                // ---- 放大镜图标：永远锚定在左侧 (min.x + 17.0, center.y)，展开时作为基点向右伸展，永不突兀消失 ----
                 let icon_pos = Pos2::new(search_rect.min.x + 17.0, search_rect.center().y);
                 let icon_color = if is_search_open {
                     if dark { Color32::WHITE } else { Color32::BLACK }
@@ -403,7 +392,6 @@ pub fn show(
                     icon_color,
                 );
 
-                // ---- 展开态控件：自左向右随容器弹性铺展 ----
                 let inner_alpha = ((expand_factor - 0.15) / 0.85).clamp(0.0, 1.0);
                 if inner_alpha > 0.01 {
                     let inner_rect = Rect::from_min_max(
@@ -417,8 +405,6 @@ pub fn show(
                     );
                     child_ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
 
-                    // 高亮度按键前景色（100% 对齐旁边活跃标签 Terminal 1 的纯正白色文字）
-                    let text_main = if dark { Color32::WHITE } else { Color32::from_rgb(30, 35, 45) };
                     let text_sub = if dark { Color32::from_gray(210) } else { Color32::from_gray(70) };
 
                     if let Some(tab) = session.tabs.get_mut(session.active_tab) {
@@ -427,10 +413,9 @@ pub fn show(
                         let mut go_next = false;
                         let mut close_bar = false;
 
-                        // 1) 搜索输入框（绝对垂直居中：高度 24px）
                         let capsule_w = egui::lerp(20.0..=120.0, inner_alpha);
                         let (capsule_rect, _) = child_ui.allocate_exact_size(vec2(capsule_w, 24.0), Sense::hover());
-                        
+
                         let edit_id = child_ui.id().with("find_input");
                         let edit_rect = Rect::from_center_size(
                             capsule_rect.center(),
@@ -448,9 +433,7 @@ pub fn show(
                                 .desired_width((capsule_w - 12.0).max(10.0))
                                 .font(FontId::proportional(12.5))
                                 .hint_text("Find...")
-                                .text_color(text_main)
-                                .frame(egui::Frame::NONE)
-                                .margin(egui::Margin::ZERO),
+                                .margin(vec2(0.0, 0.0)),
                         );
 
                         if tab.search_state.request_focus {
@@ -458,59 +441,46 @@ pub fn show(
                             tab.search_state.request_focus = false;
                         }
 
-                        let is_input_focused = edit_resp.has_focus();
-                        let focus_factor = child_ui.ctx().animate_bool(Id::new(("find_focus_ring", session.id)), is_input_focused);
-
-                        // 输入框胶囊背景与点击发光外框：纯净高级黑灰微透质感，聚焦时平滑高亮微光边框
-                        let capsule_rest_bg = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(10) };
-                        let capsule_focus_bg = if dark { Color32::from_black_alpha(80) } else { Color32::from_black_alpha(18) };
-                        let capsule_rest_stroke = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) };
-                        let capsule_focus_stroke = if dark { Color32::from_white_alpha(45) } else { Color32::from_black_alpha(40) };
-                        let capsule_bg = lerp_c(capsule_rest_bg, capsule_focus_bg, focus_factor);
-                        let capsule_stroke = lerp_c(capsule_rest_stroke, capsule_focus_stroke, focus_factor);
-                        child_ui.painter().rect_filled(capsule_rect, 6.0, capsule_bg);
-                        child_ui.painter().rect_stroke(capsule_rect, 6.0, egui::Stroke::new(0.65, capsule_stroke), egui::StrokeKind::Inside);
-
                         if edit_resp.changed() {
                             execute_search = true;
                         }
 
                         if edit_resp.has_focus() {
-                            if child_ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            if child_ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
                                 close_bar = true;
-                            } else if child_ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                if child_ui.input(|i| i.modifiers.shift) {
-                                    go_prev = true;
-                                } else {
-                                    go_next = true;
-                                }
+                            }
+                            if child_ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                                go_next = true;
+                            }
+                            if child_ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter)) {
+                                go_prev = true;
                             }
                         }
 
                         child_ui.add_space(6.0);
 
-                        // 2) 全新重构的高级微透计数徽章 (Match Counter Pill)
                         let total_matches = tab.search_state.matches.len();
-                        let current_idx = if total_matches == 0 { 0 } else { tab.search_state.active_match + 1 };
-                        let has_query = !tab.search_state.query.trim().is_empty();
-                        let count_text = format!("{current_idx}/{total_matches}");
+                        let count_text = if tab.search_state.query.trim().is_empty() {
+                            "-".to_string()
+                        } else if total_matches == 0 {
+                            "0/0".to_string()
+                        } else {
+                            format!("{}/{}", tab.search_state.active_match + 1, total_matches)
+                        };
 
-                        let (badge_bg, badge_stroke, badge_fg) = if total_matches == 0 && has_query {
-                            // 搜无结果：柔和绯红微晶光晕
+                        let (badge_bg, badge_stroke, badge_fg) = if total_matches == 0 && !tab.search_state.query.trim().is_empty() {
                             (
                                 Color32::from_rgba_unmultiplied(225, 55, 45, 28),
                                 Color32::from_rgba_unmultiplied(235, 75, 65, 75),
                                 Color32::from_rgb(255, 120, 110),
                             )
                         } else if total_matches > 0 {
-                            // 搜索命中：纯净高亮微透白光
                             (
                                 if dark { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(14) },
                                 if dark { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(20) },
                                 Color32::WHITE,
                             )
                         } else {
-                            // 空态：极简微透基底
                             (
                                 if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(8) },
                                 if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) },
@@ -526,20 +496,18 @@ pub fn show(
 
                         child_ui.add_space(6.0);
 
-                        // 3) 发丝级垂直微分割线（绝对垂直居中，高度 14px）
                         let (sep_rect, _) = child_ui.allocate_exact_size(vec2(1.0, 14.0), Sense::hover());
                         child_ui.painter().rect_filled(sep_rect, 0.0, if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) });
 
                         child_ui.add_space(6.0);
 
-                        // 通用按键样式常量（100% 照搬 + 号与主界面按键的代码与视觉算法）
                         let btn_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
                         let btn_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
                         let btn_base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
                         let btn_hover_stroke = if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(18) };
                         let btn_shadow = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) };
 
-                        // 4) ▲ 上一个按钮（100% 主按键卡片结构：微投影 + 双态底色 + 微边框 + 矢量微图标，标准 24x24 尺寸）
+                        // Prev
                         let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                         let prev_hf = child_ui.ctx().animate_bool(Id::new(("find_prev_h", session.id)), prev_resp.hovered());
                         let prev_bg = lerp_c(btn_base, btn_hover, prev_hf);
@@ -548,7 +516,7 @@ pub fn show(
                         prev_p.rect_filled(prev_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
                         prev_p.rect_filled(prev_rect, 7.0, prev_bg);
                         prev_p.rect_stroke(prev_rect, 7.0, egui::Stroke::new(0.5, prev_stroke), egui::StrokeKind::Inside);
-                        
+
                         let prev_c = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, prev_hf);
                         let c = prev_rect.center();
                         prev_p.line_segment([c + vec2(-3.5, 1.5), c + vec2(0.0, -2.5)], egui::Stroke::new(1.35, prev_c));
@@ -559,7 +527,7 @@ pub fn show(
 
                         child_ui.add_space(4.0);
 
-                        // 5) ▼ 下一个按钮（100% 主按键卡片结构：微投影 + 双态底色 + 微边框 + 矢量微图标，标准 24x24 尺寸）
+                        // Next
                         let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                         let next_hf = child_ui.ctx().animate_bool(Id::new(("find_next_h", session.id)), next_resp.hovered());
                         let next_bg = lerp_c(btn_base, btn_hover, next_hf);
@@ -568,7 +536,7 @@ pub fn show(
                         next_p.rect_filled(next_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
                         next_p.rect_filled(next_rect, 7.0, next_bg);
                         next_p.rect_stroke(next_rect, 7.0, egui::Stroke::new(0.5, next_stroke), egui::StrokeKind::Inside);
-                        
+
                         let next_c = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, next_hf);
                         let c = next_rect.center();
                         next_p.line_segment([c + vec2(-3.5, -2.0), c + vec2(0.0, 2.0)], egui::Stroke::new(1.35, next_c));
@@ -579,7 +547,7 @@ pub fn show(
 
                         child_ui.add_space(4.0);
 
-                        // 6) Aa 大小写切换按钮（100% 主按键卡片结构，标准 26x24 尺寸）
+                        // Case
                         let is_case = tab.search_state.case_sensitive;
                         let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
                         let case_hf = child_ui.ctx().animate_bool(Id::new(("find_case_h", session.id)), case_resp.hovered());
@@ -597,7 +565,7 @@ pub fn show(
                         case_p.rect_filled(case_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
                         case_p.rect_filled(case_rect, 7.0, case_bg);
                         case_p.rect_stroke(case_rect, 7.0, egui::Stroke::new(0.5, case_stroke), egui::StrokeKind::Inside);
-                        
+
                         let case_fg = if is_case {
                             Color32::WHITE
                         } else {
@@ -611,7 +579,7 @@ pub fn show(
 
                         child_ui.add_space(4.0);
 
-                        // 7) ✕ 关闭按钮（100% 主按键卡片结构，标准 24x24 尺寸）
+                        // Close
                         let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
                         let close_hf = child_ui.ctx().animate_bool(Id::new(("find_close_h", session.id)), close_resp.hovered());
                         let close_bg = lerp_c(btn_base, btn_hover, close_hf);
@@ -620,7 +588,7 @@ pub fn show(
                         close_p.rect_filled(close_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
                         close_p.rect_filled(close_rect, 7.0, close_bg);
                         close_p.rect_stroke(close_rect, 7.0, egui::Stroke::new(0.5, close_stroke), egui::StrokeKind::Inside);
-                        
+
                         let close_color = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, close_hf);
                         let c_center = close_rect.center();
                         let cd = 3.2;
@@ -686,12 +654,12 @@ pub fn show(
         ui.available_width() - 24.0, // 外边距
         (ui.available_height() - 12.0).max(60.0),
     );
-    
+
     ui.horizontal(|ui| {
         ui.add_space(12.0); // 左外边距
         let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click_and_drag());
         ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("term_bottom_y"), term_rect.max.y));
-        
+
         let is_search_open = session.tabs.get(session.active_tab).map_or(false, |t| t.search_state.is_open);
         let find_input_id = ui.id().with("find_input");
         let find_input_focused = ui.memory(|m| m.has_focus(find_input_id));
@@ -743,7 +711,6 @@ pub fn show(
         // 按网格尺寸换算行列数并同步到当前标签
         let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
         let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
-        
 
         let find_bar_rect = if tab.search_state.is_open {
             let bar_w = 340.0;
@@ -762,7 +729,7 @@ pub fn show(
             if !is_inside_find_bar {
                 let col = ((pos.x - grid_rect.min.x) / col_w).floor().clamp(0.0, (cols.saturating_sub(1)) as f32) as usize;
                 let viewport_line = ((pos.y - grid_rect.min.y) / row_h).floor().clamp(0.0, (rows.saturating_sub(1)) as f32) as i32;
-                
+
                 if let Some(t) = &mut tab.terminal {
                     if resp.drag_started_by(egui::PointerButton::Primary) {
                         let display_offset = t.term.grid().display_offset() as i32;
@@ -770,7 +737,7 @@ pub fn show(
                         let gp = crate::backend::terminal::GridPoint { line: actual_line, col };
                         t.selection = Some(crate::backend::terminal::SelectionRange { start: gp, end: gp });
                     } else if resp.dragged_by(egui::PointerButton::Primary) {
-                        // 拖拽超出终端视口顶部/底部时触发自动滚屏 (Drag-to-select Auto-Scroll)
+                        // 拖拽超出终端视口顶部/底部时触发自动滚屏
                         if pos.y < grid_rect.min.y {
                             let overflow = grid_rect.min.y - pos.y;
                             let scroll_lines = ((overflow / row_h) * 0.5).ceil().clamp(1.0, 5.0) as i32;
@@ -794,7 +761,7 @@ pub fn show(
             }
         }
 
-        // 选区拖拽结束：自动同步写入系统剪贴板（选中文本即复制，无需多按快捷键）
+        // 选区拖拽结束：自动同步写入系统剪贴板
         if resp.drag_stopped_by(egui::PointerButton::Primary) {
             if let Some(t) = &tab.terminal {
                 if let Some(sel_text) = t.selected_text() {
@@ -805,8 +772,8 @@ pub fn show(
                 }
             }
         }
-        
-        // 单击空白处取消选区（只有在没有发生拖拽且确实是单纯点击时才清除）
+
+        // 单击空白处取消选区
         if resp.clicked_by(egui::PointerButton::Primary) && !resp.dragged_by(egui::PointerButton::Primary) {
             let is_inside_find_bar = find_bar_rect.and_then(|r| resp.interact_pointer_pos().map(|p| r.contains(p))).unwrap_or(false);
             if !is_inside_find_bar {
@@ -815,8 +782,8 @@ pub fn show(
                 }
             }
         }
-        
-        // 经典终端右键交互：有选区则复制并取消选中，无选区则从剪贴板粘贴
+
+        // 经典终端右键交互
         if resp.secondary_clicked() {
             if let Some(t) = &mut tab.terminal {
                 if t.selection.is_some() {
@@ -848,8 +815,8 @@ pub fn show(
                 session.error = Some(err);
             }
         }
-        
-        // 启用 IME — 位置跟随光标而非整个网格
+
+        // 启用 IME
         if focused {
             let ime_rect = if let Some(t) = &mut tab.terminal {
                 let cursor_pt = t.term.grid().cursor.point;
@@ -869,7 +836,7 @@ pub fn show(
         // 渲染网格
         if let Some(t) = &mut tab.terminal {
             paint_grid(ui, theme, t, grid_rect, col_w, row_h, cols, rows, focused, &tab.search_state);
-            
+
             // 绘制交互式滚动条
             let history = t.term.grid().history_size();
             let screen = t.term.grid().screen_lines();
@@ -877,20 +844,19 @@ pub fn show(
                 let track_w = 8.0;
                 let track_rect = Rect::from_min_max(
                     Pos2::new(term_rect.max.x - track_w - 2.0, term_rect.min.y + 2.0),
-                    Pos2::new(term_rect.max.x - 2.0, term_rect.max.y - 2.0)
+                    Pos2::new(term_rect.max.x - 2.0, term_rect.max.y - 2.0),
                 );
-                
-                // 独立分配一个拖拽响应区
+
                 let scroll_resp = ui.interact(track_rect, ui.id().with("scrollbar"), Sense::click_and_drag());
                 let painter = ui.painter();
-                
+
                 let is_hovered = scroll_resp.hovered() || scroll_resp.dragged();
                 let bg_color = if is_hovered { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(20) };
                 painter.rect_filled(track_rect, 4.0, bg_color);
-                
+
                 let total = (history + screen) as f32;
                 let thumb_h = (screen as f32 / total * track_rect.height()).max(20.0);
-                
+
                 let drag_id = ui.id().with("scrollbar_drag");
                 if scroll_resp.drag_started() {
                     if let Some(pos) = scroll_resp.interact_pointer_pos() {
@@ -900,8 +866,7 @@ pub fn show(
                         ui.data_mut(|d| d.insert_temp(drag_id, grab_offset));
                     }
                 }
-                
-                // 处理拖拽 (无极滑动)
+
                 if scroll_resp.dragged() {
                     if let Some(pos) = scroll_resp.interact_pointer_pos() {
                         let grab_offset: f32 = ui.data_mut(|d| d.get_temp(drag_id).unwrap_or(thumb_h / 2.0));
@@ -918,23 +883,21 @@ pub fn show(
                         }
                     }
                 }
-                
-                // 获取最新的 offset
+
                 let display_offset = t.term.grid().display_offset() as f32;
                 let y = track_rect.max.y - thumb_h - (display_offset / history as f32) * (track_rect.height() - thumb_h);
-                
+
                 let thumb_rect = Rect::from_min_max(
                     Pos2::new(track_rect.min.x + 1.0, y),
-                    Pos2::new(track_rect.max.x - 1.0, y + thumb_h)
+                    Pos2::new(track_rect.max.x - 1.0, y + thumb_h),
                 );
-                
+
                 let thumb_color = if is_hovered { Color32::from_white_alpha(150) } else { Color32::from_white_alpha(80) };
                 painter.rect_filled(thumb_rect, 3.0, thumb_color);
             }
         }
 
-
-        // 在光标位置渲染 IME 预编辑文字（拼音）
+        // 光标位置渲染 IME 预编辑文字
         if !tab.ime_preedit.is_empty() {
             if let Some(t) = &tab.terminal {
                 let cursor_pt = t.term.grid().cursor.point;
@@ -942,16 +905,14 @@ pub fn show(
                 let cy = grid_rect.min.y + cursor_pt.line.0 as f32 * row_h;
                 let painter = ui.painter().with_clip_rect(grid_rect);
                 let preedit_font = FontId::new(theme.font_size, theme.font_family.clone());
-                // 背景条
                 let text_width = painter.layout_no_wrap(
-                    tab.ime_preedit.clone(), preedit_font.clone(), Color32::WHITE
+                    tab.ime_preedit.clone(), preedit_font.clone(), Color32::WHITE,
                 ).rect.width();
                 let bg_rect = Rect::from_min_size(
                     Pos2::new(cx, cy),
                     vec2(text_width + 4.0, row_h),
                 );
                 painter.rect_filled(bg_rect, 2.0, Color32::from_rgb(60, 60, 80));
-                // 文字
                 painter.text(
                     Pos2::new(cx + 2.0, cy),
                     Align2::LEFT_TOP,
@@ -959,7 +920,6 @@ pub fn show(
                     preedit_font,
                     Color32::from_rgb(120, 180, 255),
                 );
-                // 下划线
                 painter.line_segment(
                     [Pos2::new(cx, cy + row_h - 1.0), Pos2::new(cx + text_width + 4.0, cy + row_h - 1.0)],
                     egui::Stroke::new(1.5, Color32::from_rgb(120, 180, 255)),
@@ -968,768 +928,9 @@ pub fn show(
         }
     });
 
-
-
     action
 }
 
-// ---------------------------------------------------------------------------
-// 渲染
-// ---------------------------------------------------------------------------
-
-fn paint_grid(
-    ui: &mut Ui,
-    theme: &TermTheme,
-    terminal: &crate::backend::terminal::Terminal,
-    rect: Rect,
-    col_w: f32,
-    row_h: f32,
-    cols: u16,
-    rows: u16,
-    focused: bool,
-    search_state: &crate::state::session::SearchState,
-) {
-    // Update the terminal's idea of the theme colors so OSC queries respond correctly
-    {
-        let mut tc = terminal.theme_colors.lock().unwrap();
-        *tc = theme.to_theme_colors();
-    }
-
-    let term = &terminal.term;
-    let grid = term.grid();
-    let colors = term.colors();
-    let display_offset = grid.display_offset();
-    let painter = ui.painter().with_clip_rect(rect);
-    let origin = rect.min;
-
-    // 收集可见行 -> 每行的单元格
-    let mut lines: Vec<Vec<&Cell>> = Vec::new();
-    let mut current_line = None;
-    for item in grid.display_iter() {
-        if Some(item.point.line) != current_line {
-            lines.push(Vec::new());
-            current_line = Some(item.point.line);
-        }
-        if let Some(last_row) = lines.last_mut() {
-            last_row.push(item.cell);
-        }
-    }
-
-    for (li, cells) in lines.iter().enumerate() {
-        let y = origin.y + li as f32 * row_h;
-
-        // 1) 背景 run（连续同色合并）
-        let mut runs: Vec<(usize, usize, Color32)> = Vec::new();
-        for (ci, cell) in cells.iter().enumerate() {
-            let flags = cell.flags;
-            if flags.contains(Flags::WIDE_CHAR_SPACER) {
-                continue;
-            }
-            let width = if flags.contains(Flags::WIDE_CHAR) {
-                2
-            } else {
-                1
-            };
-            let (fg, bg) = resolve_cell(cell, colors, theme);
-            let _ = fg;
-            if bg != theme.background {
-                let mut merged = false;
-                if let Some((_, e, c)) = runs.last_mut() {
-                    if *c == bg && *e == ci {
-                        *e = ci + width;
-                        merged = true;
-                    }
-                }
-                if !merged {
-                    runs.push((ci, ci + width, bg));
-                }
-            }
-        }
-
-        // 浅色主题下全宽深色容器（如输入框，span >= 20）智能调和；短色块（如 Logo，span < 20）保持 100% 原色
-        let mut container_runs: Vec<(usize, usize)> = Vec::new();
-        if !theme.is_dark() {
-            for run in &mut runs {
-                let span_len = run.1 - run.0;
-                if span_len >= 20 && luminance(run.2) < 80.0 {
-                    run.2 = Color32::from_rgb(234, 236, 240);
-                    container_runs.push((run.0, run.1));
-                }
-            }
-        }
-
-        // 2) 文本 span（连续非空格、同色、同粗体 → 一个 painter.text）
-        let mut spans: Vec<(usize, String, Color32, bool)> = Vec::new();
-        let mut cur_start: Option<usize> = None;
-        let mut cur_str = String::new();
-        let mut cur_color = Color32::TRANSPARENT;
-        let mut cur_bold = false;
-        let mut last_ci: Option<usize> = None;
-        
-        for (ci, cell) in cells.iter().enumerate() {
-            let flags = cell.flags;
-            if flags.contains(Flags::WIDE_CHAR_SPACER) {
-                continue;
-            }
-            let (mut color, _) = resolve_cell(cell, colors, theme);
-            
-            // 若字符落在调和为浅色容器的区间内且文字偏亮，则加深为深色文本
-            if container_runs.iter().any(|(s, e)| ci >= *s && ci < *e) {
-                if luminance(color) > 100.0 {
-                    color = Color32::from_rgb(28, 30, 36);
-                }
-            }
-
-            let is_bold = flags.contains(Flags::BOLD);
-            let ch = if flags.contains(Flags::HIDDEN) {
-                ' '
-            } else {
-                cell.c
-            };
-            if ch == ' ' {
-                if let Some(sc) = cur_start.take() {
-                    spans.push((sc, std::mem::take(&mut cur_str), cur_color, cur_bold));
-                }
-                cur_color = Color32::TRANSPARENT;
-                last_ci = Some(ci);
-                continue;
-            }
-            
-            // 如果颜色、粗体改变，或者列索引不连续（中间有空格或被跳过的 wide char spacer），则断开 span
-            let is_contiguous = last_ci.map_or(true, |l| ci == l + 1);
-            if cur_start.is_none() || cur_color != color || cur_bold != is_bold || !is_contiguous {
-                if let Some(sc) = cur_start.take() {
-                    spans.push((sc, std::mem::take(&mut cur_str), cur_color, cur_bold));
-                }
-                cur_start = Some(ci);
-                cur_color = color;
-                cur_bold = is_bold;
-            }
-            cur_str.push(ch);
-            last_ci = Some(ci);
-        }
-        if let Some(sc) = cur_start.take() {
-            spans.push((sc, cur_str, cur_color, cur_bold));
-        }
-
-        // 3) 画背景
-        for (s, e, c) in &runs {
-            let x0 = origin.x + *s as f32 * col_w;
-            let x1 = origin.x + *e as f32 * col_w;
-            painter.rect_filled(
-                Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
-                0.0,
-                *c,
-            );
-        }
-        
-        // 3.5) 选区背景（基于缓冲区绝对行号，紧贴真实文字末尾，消除右侧大片空白高亮）
-        if let Some(sel) = terminal.selection {
-            let mut s_line = sel.start.line;
-            let mut e_line = sel.end.line;
-            let mut s_col = sel.start.col;
-            let mut e_col = sel.end.col;
-            if s_line > e_line || (s_line == e_line && s_col > e_col) {
-                std::mem::swap(&mut s_line, &mut e_line);
-                std::mem::swap(&mut s_col, &mut e_col);
-            }
-            
-            let actual_line = li as i32 - display_offset as i32;
-            if actual_line >= s_line && actual_line <= e_line {
-                // 计算当前行真实文字内容的起始列与末尾列（跳过左侧前导空白和右侧填充空白）
-                let mut content_start = 0;
-                let mut found_start = false;
-                let mut content_end = 0;
-                for (ci, cell) in cells.iter().enumerate() {
-                    if cell.c != ' ' && !cell.flags.contains(Flags::HIDDEN) {
-                        if !found_start {
-                            content_start = ci;
-                            found_start = true;
-                        }
-                        let w = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
-                        content_end = (ci + w).min(cols as usize);
-                    }
-                }
-
-                let sel_span = if s_line == e_line {
-                    if content_end > 0 && s_col < content_end {
-                        Some((s_col.max(content_start), (e_col + 1).min(content_end)))
-                    } else {
-                        None
-                    }
-                } else if actual_line == s_line {
-                    if content_end > 0 && s_col < content_end {
-                        Some((s_col.max(content_start), content_end))
-                    } else {
-                        None
-                    }
-                } else if actual_line == e_line {
-                    if content_end > 0 && e_col >= content_start {
-                        Some((content_start, (e_col + 1).min(content_end)))
-                    } else {
-                        None
-                    }
-                } else {
-                    if content_end > 0 && content_start < content_end {
-                        Some((content_start, content_end))
-                    } else {
-                        None
-                    }
-                };
-
-                if let Some((sc, ec)) = sel_span {
-                    if sc < ec {
-                        let x0 = origin.x + sc as f32 * col_w;
-                        let x1 = origin.x + ec as f32 * col_w;
-                        let sel_bg = if theme.is_dark() {
-                            Color32::from_rgb(0, 105, 230).gamma_multiply(0.42)
-                        } else {
-                            Color32::from_rgb(186, 212, 255)
-                        };
-                        painter.rect_filled(
-                            Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
-                            0.0,
-                            sel_bg,
-                        );
-                    }
-                }
-            }
-        }
-
-        // 3.6) 搜索匹配项高亮背景
-        if search_state.is_open && !search_state.matches.is_empty() {
-            let actual_line = li as i32 - display_offset as i32;
-            for (match_idx, m) in search_state.matches.iter().enumerate() {
-                if m.line == actual_line {
-                    let is_active = match_idx == search_state.active_match;
-                    let hl_bg = if is_active {
-                        Color32::from_rgb(227, 179, 65)
-                    } else if theme.is_dark() {
-                        Color32::from_rgba_premultiplied(160, 120, 20, 160)
-                    } else {
-                        Color32::from_rgba_premultiplied(255, 230, 140, 200)
-                    };
-                    let x0 = origin.x + m.col_start as f32 * col_w;
-                    let x1 = origin.x + (m.col_end + 1) as f32 * col_w;
-                    painter.rect_filled(
-                        Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + row_h)),
-                        2.0,
-                        hl_bg,
-                    );
-                }
-            }
-        }
-
-        // 4) 画文字（painter.text 经实测可渲染；粗体用独立字体族）
-        let font_id = FontId::new(theme.font_size, theme.font_family.clone());
-        let bold_id = FontId::new(theme.font_size, theme.bold_family.clone());
-        for (start, text, color, bold) in &spans {
-            let pos = Pos2::new(origin.x + *start as f32 * col_w, y);
-            painter.text(
-                pos,
-                Align2::LEFT_TOP,
-                text.as_str(),
-                if *bold { bold_id.clone() } else { font_id.clone() },
-                *color,
-            );
-        }
-    }
-
-    // ---- 光标（仅当终端未隐藏光标时绘制）----
-    use alacritty_terminal::term::TermMode;
-    let show_cursor = term.mode().contains(TermMode::SHOW_CURSOR);
-    let cursor_point = grid.cursor.point;
-    let viewport_line = cursor_point.line.0 + display_offset as i32;
-    if show_cursor && viewport_line >= 0 && (viewport_line as usize) < lines.len() {
-        let mut col = cursor_point.column.0;
-        let cell = &grid[cursor_point];
-        if cell.flags.contains(Flags::WIDE_CHAR_SPACER) && col > 0 {
-            col -= 1;
-        }
-        if col < cols as usize {
-            let width = if cell.flags.contains(Flags::WIDE_CHAR) {
-                2.0 * col_w
-            } else {
-                col_w
-            };
-            let x = origin.x + col as f32 * col_w;
-            let y = origin.y + viewport_line as f32 * row_h;
-            let visible = if focused {
-                (ui.input(|i| i.time * 2.0) as i64) % 2 == 0
-            } else {
-                true
-            };
-            if visible {
-                painter.rect_filled(
-                    Rect::from_min_size(Pos2::new(x, y), vec2(width, row_h)),
-                    0.0,
-                    theme.cursor,
-                );
-                // 在光标块上以背景色重画该格字形
-                let glyph = if cell.c == ' ' { " " } else { &cell.c.to_string() };
-                painter.text(
-                    Pos2::new(x, y),
-                    Align2::LEFT_TOP,
-                    glyph,
-                    FontId::new(theme.font_size, theme.font_family.clone()),
-                    theme.background,
-                );
-            }
-        }
-    }
-    let _ = rows;
-}
-
-pub(crate) fn luminance(c: Color32) -> f32 {
-    0.2126 * (c.r() as f32) + 0.7152 * (c.g() as f32) + 0.0722 * (c.b() as f32)
-}
-
-pub(crate) fn is_graphic_char(c: char) -> bool {
-    // 常见的 Unicode 绘图字符、色块、方块（ANSI 图形/Logo 使用）
-    matches!(
-        c,
-        ' ' | '█' | '▀' | '▄' | '▌' | '▐' | '■' | '▲' | '▼' | '◆' | '●' | '░' | '▒' | '▓'
-            | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | '─' | '│'
-    )
-}
-
-pub(crate) fn resolve_cell(cell: &Cell, colors: &Colors, theme: &TermTheme) -> (Color32, Color32) {
-    let mut fg = resolve_color(&cell.fg, colors, theme, theme.foreground);
-    let mut bg = resolve_color(&cell.bg, colors, theme, theme.background);
-
-    // 1) 处理 SGR 7 (INVERSE 反显)
-    if cell.flags.contains(Flags::INVERSE) {
-        std::mem::swap(&mut fg, &mut bg);
-    }
-
-    // 2) 处理 SGR 2 (DIM 弱化)
-    if cell.flags.contains(Flags::DIM) {
-        let base = theme.background;
-        fg = Color32::from_rgb(
-            ((fg.r() as u16 + base.r() as u16) / 2) as u8,
-            ((fg.g() as u16 + base.g() as u16) / 2) as u8,
-            ((fg.b() as u16 + base.b() as u16) / 2) as u8,
-        );
-    }
-
-    // 3) 仅对常规文字字符执行对比度保护，绝对不干扰图形色块与 Logo
-    if !is_graphic_char(cell.c) {
-        let lum_fg = luminance(fg);
-        let lum_bg = luminance(bg);
-        let contrast_diff = (lum_fg - lum_bg).abs();
-
-        if contrast_diff < 35.0 {
-            if lum_bg < 128.0 {
-                // 背景偏深，文字太暗看不清 -> 提升文字为浅亮色
-                fg = Color32::from_rgb(228, 231, 236);
-            } else {
-                // 背景偏浅，文字太浅看不清 -> 加深文字为深色
-                fg = Color32::from_rgb(32, 35, 42);
-            }
-        }
-    }
-
-    (fg, bg)
-}
-
-pub(crate) fn resolve_color(color: &TermColor, colors: &Colors, theme: &TermTheme, fallback: Color32) -> Color32 {
-    match color {
-        TermColor::Named(n) => {
-            let idx = *n as usize;
-            if idx < 16 {
-                theme.ansi[idx]
-            } else if *n == alacritty_terminal::vte::ansi::NamedColor::Foreground {
-                theme.foreground
-            } else if *n == alacritty_terminal::vte::ansi::NamedColor::Background {
-                theme.background
-            } else if *n == alacritty_terminal::vte::ansi::NamedColor::Cursor {
-                theme.cursor
-            } else {
-                colors[*n].map(rgb_to_color32).unwrap_or(fallback)
-            }
-        }
-        TermColor::Spec(rgb) => rgb_to_color32(*rgb),
-        TermColor::Indexed(i) => {
-            let idx = *i as usize;
-            if idx < 16 {
-                theme.ansi[idx]
-            } else {
-                colors[*i as usize].map(rgb_to_color32).unwrap_or(fallback)
-            }
-        }
-    }
-}
-
-pub(crate) fn rgb_to_color32(rgb: Rgb) -> Color32 {
-    Color32::from_rgb(rgb.r, rgb.g, rgb.b)
-}
-
-// ---------------------------------------------------------------------------
-// 输入
-// ---------------------------------------------------------------------------
-
-fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
-    if !ui.input(|i| i.focused) {
-        return None;
-    }
-    let find_input_id = ui.id().with("find_input");
-    if ui.memory(|m| m.has_focus(find_input_id)) {
-        return None; // 搜索框处于输入状态，绝对不向 PTY 终端转发按键
-    }
-    let events = ui.input(|i| i.events.clone());
-    let mut out: Vec<u8> = Vec::new();
-    
-    for ev in events {
-        match ev {
-            // ---- IME 事件 ----
-            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
-                // 非空 preedit = 正在输入拼音；空 preedit = IME 取消
-                tab.ime_composing = !text.is_empty();
-                tab.ime_preedit = text;
-            }
-            egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
-                // 用户确认了输入法选字，把最终文字写入 PTY
-                tab.ime_composing = false;
-                tab.ime_preedit.clear();
-                tab.ime_just_committed_text = Some(text.clone());
-                out.extend_from_slice(text.as_bytes());
-            }
-            #[allow(deprecated)]
-            egui::Event::Ime(_) => {}
-
-            // ---- 以下事件在 IME 组合期间全部跳过 ----
-            _ if tab.ime_composing => {
-                // IME 正在编辑拼音时，Enter / Backspace / Text 等
-                // 都属于输入法内部操作，不得转发给 PTY
-                continue;
-            }
-
-            // ---- 普通事件（非 IME 组合态）----
-            egui::Event::Copy => {
-                // 1) 若存在选区：优先执行智能复制，绝不杀死当前运行任务
-                if let Some(t) = &mut tab.terminal {
-                    if t.selection.is_some() {
-                        if let Some(sel) = t.selected_text() {
-                            if !sel.is_empty() {
-                                set_clipboard_text(&sel);
-                                ui.ctx().copy_text(sel);
-                            }
-                        }
-                        t.selection = None;
-                        continue;
-                    }
-                }
-
-                // 2) 无选区：执行双击 Ctrl+C 防误触中断保护 (1.8秒内连按两次才发送 SIGINT)
-                let now = std::time::Instant::now();
-                let is_double_press = if let Some(last) = tab.last_ctrl_c {
-                    now.duration_since(last).as_millis() <= 1800
-                } else {
-                    false
-                };
-
-                if is_double_press {
-                    tab.last_ctrl_c = None;
-                    out.extend_from_slice(b"\x03"); // 发送 SIGINT (^C)
-                } else {
-                    tab.last_ctrl_c = Some(now);
-                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(1800));
-                }
-            }
-            egui::Event::Paste(text) => out.extend_from_slice(text.as_bytes()),
-            egui::Event::Text(text) => {
-                // IME Commit 后紧跟的 Text 事件可能是被拆分的单个字符或整个字符串。
-                // 只要它能跟 ime_just_committed_text 匹配上，我们就吞掉它。
-                if let Some(mut committed) = tab.ime_just_committed_text.take() {
-                    if committed.starts_with(text.as_str()) {
-                        committed.drain(..text.len());
-                        if !committed.is_empty() {
-                            tab.ime_just_committed_text = Some(committed);
-                        }
-                        continue;
-                    }
-                }
-                
-                for ch in text.chars() {
-                    let c = ch as u32;
-                    if c < 0x20 || c == 0x7f {
-                        continue; // 控制字符交给 Key 路径
-                    }
-                    let mut buf = [0u8; 4];
-                    out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-                }
-            }
-            egui::Event::Key {
-                key,
-                pressed: true,
-                modifiers,
-                ..
-            } => {
-                let is_ctrl_or_cmd = modifiers.ctrl || modifiers.command;
-
-                // 智能 Ctrl+C 与 双击 Ctrl+C 防误触保护
-                let is_ctrl_c = is_ctrl_or_cmd && !modifiers.shift && !modifiers.alt && key == egui::Key::C;
-                if is_ctrl_c {
-                    // 1) 若存在选区：优先执行复制并取消选中
-                    if let Some(t) = &mut tab.terminal {
-                        if t.selection.is_some() {
-                            if let Some(sel) = t.selected_text() {
-                                if !sel.is_empty() {
-                                    set_clipboard_text(&sel);
-                                    ui.ctx().copy_text(sel);
-                                }
-                            }
-                            t.selection = None;
-                            continue;
-                        }
-                    }
-
-                    // 2) 无选区：执行双击 Ctrl+C 判定 (1.8秒内连续按两次才真正中断)
-                    let now = std::time::Instant::now();
-                    let is_double_press = if let Some(last) = tab.last_ctrl_c {
-                        now.duration_since(last).as_millis() <= 1800
-                    } else {
-                        false
-                    };
-
-                    if is_double_press {
-                        tab.last_ctrl_c = None;
-                        out.extend_from_slice(b"\x03"); // 发送 SIGINT (^C)
-                    } else {
-                        tab.last_ctrl_c = Some(now);
-                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(1800));
-                    }
-                    continue;
-                }
-
-                // 终端专用复制快捷键（Ctrl+Shift+C / Cmd+Shift+C / Ctrl+Insert）
-                let is_copy_key = (is_ctrl_or_cmd && modifiers.shift && key == egui::Key::C)
-                    || (key == egui::Key::Insert && modifiers.ctrl);
-
-                if is_copy_key {
-                    if let Some(t) = &mut tab.terminal {
-                        if let Some(sel) = t.selected_text() {
-                            if !sel.is_empty() {
-                                set_clipboard_text(&sel);
-                                ui.ctx().copy_text(sel);
-                            }
-                        }
-                        t.selection = None;
-                    }
-                    continue;
-                }
-
-                // 搜索快捷键：Ctrl+F / Cmd+F 唤起终端内搜索条
-                if is_ctrl_or_cmd && !modifiers.shift && !modifiers.alt && key == egui::Key::F {
-                    tab.search_state.is_open = true;
-                    tab.search_state.request_focus = true;
-                    if let Some(sel) = tab.terminal.as_ref().and_then(|t| t.selected_text()) {
-                        let trimmed = sel.trim();
-                        if !trimmed.is_empty() {
-                            tab.search_state.query = trimmed.to_string();
-                            if let Some(t) = &tab.terminal {
-                                tab.search_state.matches = t.search(&tab.search_state.query, tab.search_state.case_sensitive);
-                                tab.search_state.active_match = 0;
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // 粘贴快捷键：
-                // 1) 终端标准 Ctrl+Shift+V / Cmd+Shift+V
-                // 2) 终端标准 Shift+Insert
-                let is_paste_key = (is_ctrl_or_cmd && modifiers.shift && key == egui::Key::V)
-                    || (modifiers.shift && key == egui::Key::Insert);
-
-                if is_paste_key {
-                    if let Some(clip) = get_clipboard_text() {
-                        out.extend_from_slice(clip.as_bytes());
-                    }
-                    continue;
-                }
-                
-                if let Some(bytes) = map_key(key, &modifiers) {
-                    out.extend_from_slice(&bytes);
-                }
-            }
-            _ => {}
-        }
-    }
-    if !out.is_empty() {
-        if let Some(pty) = &mut tab.pty {
-            if let Err(e) = pty.write(&out) {
-                return Some(format!("写入 PTY 失败: {e}"));
-            }
-        }
-    }
-    None
-}
-
-fn map_key(key: egui::Key, mods: &Modifiers) -> Option<Vec<u8>> {
-    use egui::Key::*;
-    match key {
-        Enter => Some(b"\r".to_vec()),
-        Backspace => Some(vec![0x7f]),
-        Escape => Some(vec![0x1b]),
-        Tab => Some(if mods.shift { b"\x1b[Z".to_vec() } else { b"\t".to_vec() }),
-        ArrowUp => Some(b"\x1b[A".to_vec()),
-        ArrowDown => Some(b"\x1b[B".to_vec()),
-        ArrowRight => Some(b"\x1b[C".to_vec()),
-        ArrowLeft => Some(b"\x1b[D".to_vec()),
-        Home => Some(b"\x1b[H".to_vec()),
-        End => Some(b"\x1b[F".to_vec()),
-        PageUp => Some(b"\x1b[5~".to_vec()),
-        PageDown => Some(b"\x1b[6~".to_vec()),
-        Delete => Some(b"\x1b[3~".to_vec()),
-        Insert => Some(b"\x1b[2~".to_vec()),
-        _ => {
-            if mods.ctrl && !mods.alt {
-                if let Some(c) = key_to_char(key) {
-                    return Some(vec![(c as u8) & 0x1f]);
-                }
-            }
-            None
-        }
-    }
-}
-
-fn key_to_char(key: egui::Key) -> Option<char> {
-    use egui::Key::*;
-    let k = key as usize;
-    // egui 的 Key 枚举中 A..Z、Num0..Num9 各自连续
-    if (A as usize..=Z as usize).contains(&k) {
-        return Some(char::from(b'a' + (k - A as usize) as u8));
-    }
-    if (Num0 as usize..=Num9 as usize).contains(&k) {
-        return Some(char::from(b'0' + (k - Num0 as usize) as u8));
-    }
-    match key {
-        Space => Some(' '),
-        _ => None,
-    }
-}
-
-fn handle_scroll(
-    ui: &mut Ui,
-    tab: &mut TerminalInstance,
-    hovered: bool,
-    rect: Rect,
-    col_w: f32,
-    row_h: f32,
-) {
-    let pointer_in = ui.input(|i| {
-        i.pointer.latest_pos().map_or(false, |p| rect.contains(p))
-    });
-    if !hovered && !pointer_in {
-        return;
-    }
-    
-    // 使用 smooth_scroll_delta 支持触控板无极滚动和普通鼠标滚轮。
-    let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
-    if scroll_y != 0.0 {
-        tab.scroll_accum += scroll_y;
-    }
-    
-    // 每 15 像素累积触发一行滚动（1格标准滚轮约50像素，可滚动3行）
-    let pixels_per_line = 15.0;
-    let lines = (tab.scroll_accum / pixels_per_line).trunc() as i32;
-    
-    if lines != 0 {
-        tab.scroll_accum -= (lines as f32) * pixels_per_line;
-        if let Some(t) = &mut tab.terminal {
-            use alacritty_terminal::term::TermMode;
-            let mode = t.term.mode();
-            let has_mouse_report = mode.intersects(
-                TermMode::MOUSE_REPORT_CLICK
-                    | TermMode::MOUSE_DRAG
-                    | TermMode::MOUSE_MOTION
-                    | TermMode::MOUSE_MODE,
-            );
-            let in_alt_screen = mode.contains(TermMode::ALT_SCREEN);
-
-            if has_mouse_report {
-                // TUI 启用了鼠标协议（如 vim, htop, 现代 TUI 界面）
-                let pointer_pos = ui.input(|i| i.pointer.latest_pos()).unwrap_or(rect.min);
-                let rel_x = (pointer_pos.x - rect.min.x).max(0.0);
-                let rel_y = (pointer_pos.y - rect.min.y).max(0.0);
-                let col = ((rel_x / col_w) as usize + 1).min(t.cols as usize);
-                let row = ((rel_y / row_h) as usize + 1).min(t.rows as usize);
-
-                let count = lines.abs();
-                let is_up = lines > 0;
-                let mut bytes = Vec::new();
-
-                for _ in 0..count {
-                    if mode.contains(TermMode::SGR_MOUSE) {
-                        // SGR 模式: 向上 64, 向下 65
-                        let btn = if is_up { 64 } else { 65 };
-                        bytes.extend_from_slice(format!("\x1b[<{btn};{col};{row}M").as_bytes());
-                    } else if mode.contains(TermMode::UTF8_MOUSE) {
-                        let btn = if is_up { 64 } else { 65 };
-                        let mut buf = Vec::new();
-                        buf.extend_from_slice(b"\x1b[M");
-                        let b = 32 + btn;
-                        let c = 32 + col.min(2015);
-                        let r = 32 + row.min(2015);
-                        let mut char_buf = [0u8; 4];
-                        buf.extend_from_slice(char::from_u32(b as u32).unwrap_or(' ').encode_utf8(&mut char_buf).as_bytes());
-                        buf.extend_from_slice(char::from_u32(c as u32).unwrap_or(' ').encode_utf8(&mut char_buf).as_bytes());
-                        buf.extend_from_slice(char::from_u32(r as u32).unwrap_or(' ').encode_utf8(&mut char_buf).as_bytes());
-                        bytes.extend_from_slice(&buf);
-                    } else {
-                        // 标准 X10 鼠标协议
-                        let btn = if is_up { 64 } else { 65 };
-                        let b = (32 + btn).min(255) as u8;
-                        let c = (32 + col.min(223)) as u8;
-                        let r = (32 + row.min(223)) as u8;
-                        bytes.extend_from_slice(&[0x1b, b'[', b'M', b, c, r]);
-                    }
-                }
-
-                if !bytes.is_empty() {
-                    if let Some(pty) = &mut tab.pty {
-                        let _ = pty.write(&bytes);
-                    }
-                }
-            } else if in_alt_screen {
-                // TUI 处于备用屏幕 (如 opencode, mimocode, less, nano 等) 但未开启鼠标协议时：
-                // 工业级标准行为是将滚轮转换为光标上下箭头键（Alternate Screen Scroll），直接驱动 TUI 内容滚动！
-                let is_app_cursor = mode.contains(TermMode::APP_CURSOR);
-                let count = lines.abs();
-                let is_up = lines > 0;
-                let mut bytes = Vec::new();
-
-                for _ in 0..count {
-                    if is_up {
-                        if is_app_cursor {
-                            bytes.extend_from_slice(b"\x1bOA");
-                        } else {
-                            bytes.extend_from_slice(b"\x1b[A");
-                        }
-                    } else {
-                        if is_app_cursor {
-                            bytes.extend_from_slice(b"\x1bOB");
-                        } else {
-                            bytes.extend_from_slice(b"\x1b[B");
-                        }
-                    }
-                }
-
-                if !bytes.is_empty() {
-                    if let Some(pty) = &mut tab.pty {
-                        let _ = pty.write(&bytes);
-                    }
-                }
-            } else {
-                // 普通 Shell 终端屏幕：滚动 Scrollback 历史缓冲区
-                t.scroll_display(lines);
-            }
-        }
-    }
-}
-
-/// 绘制一个标签页卡片，返回点击/关闭对应的动作（100% 继承 Session 卡片美学、阴影与边缘高光）。
 fn draw_tab(
     ui: &mut Ui,
     session: &Session,
@@ -1757,26 +958,23 @@ fn draw_tab(
         )
     }
 
-    // 100% 复刻 Session 侧边栏卡片的色彩计算公式
     let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
     let hover_color = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
-    
+
     let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
-    let sel_color = if dark { 
+    let sel_color = if dark {
         Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 42)
-    } else { 
+    } else {
         Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 26)
     };
-    
+
     let bg = lerp_color(lerp_color(base_color, hover_color, hover_factor), sel_color, sel_factor);
 
-    // 极细微边缘描边（纤细精致，绝不突兀粗厚）
     let base_stroke = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(10) };
     let hover_stroke = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(18) };
     let sel_stroke = Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], if dark { 45 } else { 35 });
     let stroke_c = lerp_color(lerp_color(base_stroke, hover_stroke, hover_factor), sel_stroke, sel_factor);
 
-    // 文字颜色插值（完全与 Session 卡片一致）
     let name_normal = if dark { Color32::from_gray(160) } else { Color32::from_gray(100) };
     let name_hover = if dark { Color32::from_gray(230) } else { Color32::from_gray(30) };
     let name_sel = if dark { Color32::WHITE } else { Color32::BLACK };
@@ -1784,22 +982,18 @@ fn draw_tab(
 
     let painter = ui.painter();
 
-    // 1) 绘制柔和下沉投影 (Drop Shadow，与 Session 卡片机制完全一致)
     if bg != Color32::TRANSPARENT {
         let shadow_alpha = (if dark { 60.0 } else { 15.0 } * (1.0 + sel_factor * 0.3 + hover_factor * 0.15)) as u8;
         let shadow_color = Color32::from_black_alpha(shadow_alpha);
         painter.rect_filled(tab_rect.translate(vec2(0.0, 1.5)), 12.0, shadow_color);
     }
 
-    // 2) 绘制卡片本体背景 (12.0px 圆角矩形)
     if bg != Color32::TRANSPARENT {
         painter.rect_filled(tab_rect, 12.0, bg);
     }
 
-    // 3) 绘制细腻微边框 (0.5px 发丝级微描边)
     painter.rect_stroke(tab_rect, 12.0, egui::Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
 
-    // 标题文本（已删除指示灯，左侧留出舒适的 14px 内边距）
     painter.text(
         Pos2::new(tab_rect.min.x + 14.0, tab_rect.center().y),
         Align2::LEFT_CENTER,
@@ -1814,11 +1008,11 @@ fn draw_tab(
         vec2(18.0, 18.0),
     );
     let close_resp = ui.interact(close_rect, Id::new(("tab-close", session.id, ti)), Sense::click());
-    
+
     if close_resp.hovered() {
         painter.rect_filled(close_rect, 6.0, Color32::from_rgb(220, 60, 50).gamma_multiply(0.85));
     }
-    
+
     let close_color = if close_resp.hovered() {
         Color32::WHITE
     } else if dark {
@@ -1826,7 +1020,7 @@ fn draw_tab(
     } else {
         Color32::from_gray(120)
     };
-    
+
     let center = close_rect.center();
     let d = 3.5;
     painter.line_segment(
@@ -1837,7 +1031,7 @@ fn draw_tab(
         [center + vec2(-d, d), center + vec2(d, -d)],
         egui::Stroke::new(1.3, close_color),
     );
-    
+
     if close_resp.clicked() {
         return Some(TerminalAction::KillTab(ti));
     }
@@ -1846,104 +1040,3 @@ fn draw_tab(
     }
     None
 }
-
-/// 读取系统剪贴板文本（Windows 走 Win32 API 零依赖无额外分配，跨平台回退 None）
-#[cfg(windows)]
-pub fn get_clipboard_text() -> Option<String> {
-    use std::ptr::null_mut;
-    unsafe extern "system" {
-        fn OpenClipboard(hWndNewOwner: *mut std::ffi::c_void) -> i32;
-        fn CloseClipboard() -> i32;
-        fn GetClipboardData(uFormat: u32) -> *mut std::ffi::c_void;
-        fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut u16;
-        fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
-    }
-    const CF_UNICODETEXT: u32 = 13;
-    unsafe {
-        if OpenClipboard(null_mut()) == 0 {
-            return None;
-        }
-        let handle = GetClipboardData(CF_UNICODETEXT);
-        if handle.is_null() {
-            CloseClipboard();
-            return None;
-        }
-        let ptr = GlobalLock(handle);
-        if ptr.is_null() {
-            CloseClipboard();
-            return None;
-        }
-        let mut len = 0;
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr, len);
-        let s = String::from_utf16_lossy(slice);
-        GlobalUnlock(handle);
-        CloseClipboard();
-        Some(s)
-    }
-}
-
-/// 将文本写入系统剪贴板（Windows 走 Win32 原生 API，零延迟、零依赖、立即生效）
-#[cfg(windows)]
-pub fn set_clipboard_text(text: &str) -> bool {
-    use std::ptr::null_mut;
-    unsafe extern "system" {
-        fn OpenClipboard(hWndNewOwner: *mut std::ffi::c_void) -> i32;
-        fn CloseClipboard() -> i32;
-        fn EmptyClipboard() -> i32;
-        fn SetClipboardData(uFormat: u32, hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-        fn GlobalAlloc(uFlags: u32, dwBytes: usize) -> *mut std::ffi::c_void;
-        fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut u16;
-        fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
-        fn GlobalFree(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    }
-    const CF_UNICODETEXT: u32 = 13;
-    const GMEM_MOVEABLE: u32 = 0x0002;
-
-    let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-    let bytes_len = utf16.len() * std::mem::size_of::<u16>();
-
-    unsafe {
-        if OpenClipboard(null_mut()) == 0 {
-            return false;
-        }
-        EmptyClipboard();
-        let h_mem = GlobalAlloc(GMEM_MOVEABLE, bytes_len);
-        if h_mem.is_null() {
-            CloseClipboard();
-            return false;
-        }
-        let ptr = GlobalLock(h_mem);
-        if ptr.is_null() {
-            GlobalFree(h_mem);
-            CloseClipboard();
-            return false;
-        }
-        std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr, utf16.len());
-        GlobalUnlock(h_mem);
-        if SetClipboardData(CF_UNICODETEXT, h_mem).is_null() {
-            GlobalFree(h_mem);
-            CloseClipboard();
-            return false;
-        }
-        CloseClipboard();
-        true
-    }
-}
-
-#[cfg(not(windows))]
-pub fn get_clipboard_text() -> Option<String> {
-    None
-}
-
-#[cfg(not(windows))]
-pub fn set_clipboard_text(_text: &str) -> bool {
-    false
-}
-
-
-
-
-

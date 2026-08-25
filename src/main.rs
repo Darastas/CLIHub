@@ -3,6 +3,7 @@
 mod app;
 mod backend;
 mod config;
+mod fonts;
 mod state;
 mod ui;
 

@@ -8,8 +8,10 @@ use egui::{Color32, Context, RichText};
 use crate::backend::io_loop;
 use crate::backend::notification::{NotificationAction, NotificationService};
 use crate::backend::pty::PtyHandle;
+use crate::backend::sleep_inhibitor::SleepInhibitor;
 use crate::backend::terminal::{Terminal, TerminalEvent};
 use crate::config::{AppConfig, CliEntry, NotificationSettings, ThemeSettings};
+use crate::fonts::{app_visuals, setup_fonts};
 use crate::state::{Session, SessionStatus, TerminalInstance};
 use crate::ui::{sidebar, terminal, titlebar};
 
@@ -35,209 +37,16 @@ pub struct HubApp {
     notification_service: NotificationService,
     in_overview: bool,
     overview_session: Option<usize>,
+    sleep_inhibitor: SleepInhibitor,
+    egui_ctx: Option<egui::Context>,
+    last_grid_cols: u16,
+    last_grid_rows: u16,
 }
 
 fn home_dir() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.home_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// 加载字体：内嵌 JetBrains Mono（终端等宽，含加粗族）+ 系统字体。
-/// - Monospace：JetBrains Mono → Consolas → 微软雅黑(CJK)
-/// - Proportional（UI）：Segoe UI → 微软雅黑(CJK)
-fn setup_fonts(ctx: &egui::Context) {
-    use egui::FontFamily;
-
-    let mut fonts = egui::FontDefinitions::default();
-    let arc = |data: &'static [u8]| std::sync::Arc::new(egui::FontData::from_static(data));
-
-    // 内嵌 JetBrains Mono（Regular + Bold）
-    fonts.font_data.insert(
-        "jbmono".into(),
-        arc(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")),
-    );
-    fonts.font_data.insert(
-        "jbmono-bold".into(),
-        arc(include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")),
-    );
-    // 优雅艺术标题字体 (Playfair Display)
-    fonts.font_data.insert(
-        "title_font".into(),
-        arc(include_bytes!("../assets/fonts/PlayfairDisplay.ttf")),
-    );
-
-    // 自定义加粗族（供终端粗体字形使用）
-    fonts
-        .families
-        .insert(FontFamily::Name("jbmono-bold".into()), vec!["jbmono-bold".into()]);
-        
-    // 自定义标题族
-    fonts
-        .families
-        .insert(FontFamily::Name("title".into()), vec!["title_font".into()]);
-    // 终端等宽族：JetBrains Mono 打头
-    if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
-        mono.insert(0, "jbmono".into());
-    }
-
-    let load = |path: &str| -> Option<(String, Vec<u8>)> {
-        std::fs::read(path).ok().map(|data| {
-            let name = path
-                .split(['\\', '/'])
-                .last()
-                .unwrap_or("font")
-                .to_owned();
-            (name, data)
-        })
-    };
-
-    // Nerd Font（Powerline / 图标字形）—— 从用户字体目录加载
-    let user_fonts = format!(
-        r"{}\AppData\Local\Microsoft\Windows\Fonts",
-        std::env::var("USERPROFILE").unwrap_or_default()
-    );
-    for nf_file in [
-        "JetBrainsMonoNerdFontMono-Regular.ttf",
-        "JetBrainsMonoNerdFontMono-Bold.ttf",
-    ] {
-        let nf_path = format!(r"{}\{}", user_fonts, nf_file);
-        if let Some((name, data)) = load(&nf_path) {
-            fonts
-                .font_data
-                .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-            if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
-                mono.push(name.clone());
-            }
-            // 也加入加粗族的回退链
-            if nf_file.contains("Bold") {
-                if let Some(bold) = fonts.families.get_mut(&FontFamily::Name("jbmono-bold".into())) {
-                    bold.push(name);
-                }
-            }
-        }
-    }
-    // 也尝试从系统字体目录加载
-    for nf_file in [
-        "JetBrainsMonoNerdFontMono-Regular.ttf",
-        "JetBrainsMonoNerdFontMono-Bold.ttf",
-    ] {
-        let nf_path = format!(r"C:\Windows\Fonts\{}", nf_file);
-        if !fonts.font_data.contains_key(nf_file) {
-            if let Some((name, data)) = load(&nf_path) {
-                fonts
-                    .font_data
-                    .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-                if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
-                    mono.push(name.clone());
-                }
-                if nf_file.contains("Bold") {
-                    if let Some(bold) = fonts.families.get_mut(&FontFamily::Name("jbmono-bold".into())) {
-                        bold.push(name);
-                    }
-                }
-            }
-        }
-    }
-
-    // UI 拉丁字体：Segoe UI 放最前
-    if let Some((name, data)) = load(r"C:\Windows\Fonts\segoeui.ttf") {
-        fonts
-            .font_data
-            .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-        if let Some(prop) = fonts.families.get_mut(&FontFamily::Proportional) {
-            prop.insert(0, name);
-        }
-    }
-    // 终端等宽兜底：Consolas
-    if let Some((name, data)) = load(r"C:\Windows\Fonts\consola.ttf") {
-        fonts
-            .font_data
-            .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-        if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
-            mono.push(name);
-        }
-    }
-    // CJK 兜底链：微软雅黑 → DengXian → SimHei
-    for path in [
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\Deng.ttf",
-        r"C:\Windows\Fonts\simhei.ttf",
-    ] {
-        if let Some((name, data)) = load(path) {
-            fonts
-                .font_data
-                .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-            for family in [FontFamily::Monospace, FontFamily::Proportional] {
-                if let Some(list) = fonts.families.get_mut(&family) {
-                    list.push(name.clone());
-                }
-            }
-        }
-    }
-    ctx.set_fonts(fonts);
-}
-
-fn app_visuals(dark: bool) -> egui::Visuals {
-    let mut v = if dark {
-        egui::Visuals::dark()
-    } else {
-        egui::Visuals::light()
-    };
-    
-    // HeroUI v3 inspired global aesthetics
-    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(14);
-    v.widgets.inactive.corner_radius = egui::CornerRadius::same(14);
-    v.widgets.hovered.corner_radius = egui::CornerRadius::same(14);
-    v.widgets.active.corner_radius = egui::CornerRadius::same(14);
-    v.window_corner_radius = egui::CornerRadius::same(16); // Even softer windows
-    
-    // Remove aggressive borders
-    v.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
-    v.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-    v.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-    v.widgets.active.bg_stroke = egui::Stroke::NONE;
-    
-    if dark {
-        // HeroUI Zinc Dark
-        v.panel_fill = Color32::from_rgb(24, 24, 27);    // Zinc-900
-        v.window_fill = Color32::from_rgb(9, 9, 11);     // Zinc-950
-        v.selection.bg_fill = Color32::from_rgb(0, 111, 238); // HeroUI Primary
-        v.selection.stroke = egui::Stroke::new(1.0, Color32::WHITE);
-        
-        // Faded hover effects for buttons
-        v.widgets.inactive.bg_fill = Color32::TRANSPARENT; // Ghost buttons by default
-        v.widgets.hovered.bg_fill = Color32::from_rgb(39, 39, 42); // Zinc-800
-        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(39, 39, 42);
-        v.widgets.active.bg_fill = Color32::from_rgb(63, 63, 70); // Zinc-700
-        v.widgets.noninteractive.bg_fill = Color32::from_rgb(24, 24, 27);
-        
-        v.window_stroke = egui::Stroke::NONE; // Rely on shadows
-    } else {
-        // HeroUI Light
-        v.panel_fill = Color32::from_rgb(250, 250, 250); // Zinc-50
-        v.window_fill = Color32::from_rgb(255, 255, 255);
-        v.selection.bg_fill = Color32::from_rgb(0, 111, 238); // HeroUI Primary
-        v.selection.stroke = egui::Stroke::new(1.0, Color32::WHITE);
-        
-        // Faded hover effects
-        v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
-        v.widgets.hovered.bg_fill = Color32::from_rgb(228, 228, 231); // Zinc-200
-        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(228, 228, 231);
-        v.widgets.active.bg_fill = Color32::from_rgb(212, 212, 216); // Zinc-300
-        v.widgets.noninteractive.bg_fill = Color32::from_rgb(250, 250, 250);
-        
-        v.window_stroke = egui::Stroke::NONE;
-    }
-    
-    // Add nice global shadows for popups and windows
-    v.window_shadow = egui::epaint::Shadow {
-        offset: [0, 12],
-        blur: 24,
-        spread: 0,
-        color: Color32::from_black_alpha(if dark { 120 } else { 40 }),
-    };
-    v
 }
 
 impl HubApp {
@@ -280,6 +89,10 @@ impl HubApp {
             notification_service: NotificationService::new(),
             in_overview: false,
             overview_session: None,
+            sleep_inhibitor: SleepInhibitor::new(),
+            egui_ctx: Some(cc.egui_ctx.clone()),
+            last_grid_cols: 120,
+            last_grid_rows: 35,
         };
         // 自动为默认终端会话开第一个标签页，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -382,19 +195,22 @@ impl HubApp {
 
         let command = s.command.clone();
         let cwd = s.cwd.clone();
+        let cols = self.last_grid_cols;
+        let rows = self.last_grid_rows;
         let mut inst = TerminalInstance::new();
-        // 立即初始化终端字符网格，保证 0ms 无缝切屏呈现
-        inst.terminal = Some(Terminal::new(24, 80, term_theme.to_theme_colors()));
+        // 立即初始化终端字符网格（使用当前精准网格尺寸，防止 ConPTY 启动瞬间再次触发 resize 导致 OMP 重绘两次）
+        inst.terminal = Some(Terminal::new(rows, cols, term_theme.to_theme_colors()));
         inst.alive.store(true, std::sync::atomic::Ordering::SeqCst);
 
         // 异步派生 PTY 进程，彻底杜绝主 UI 线程卡顿
         let (spawn_tx, spawn_rx) = crossbeam_channel::bounded(1);
         let cmd_clone = command.clone();
         let cwd_clone = cwd.clone();
+        let ctx_clone = self.egui_ctx.clone();
         std::thread::Builder::new()
             .name(format!("spawn-{}", command))
             .spawn(move || {
-                let res = PtyHandle::spawn(&cmd_clone, &[], &cwd_clone, 24, 80, dark_mode);
+                let res = PtyHandle::spawn(&cmd_clone, &[], &cwd_clone, rows, cols, dark_mode, ctx_clone);
                 let _ = spawn_tx.send(res);
             })
             .ok();
@@ -526,6 +342,17 @@ impl HubApp {
                     }
                 }
 
+                // 终端刚刚收到输入后产生的新应答（DSR 光标位置/XTWINOPS 等），在同帧立刻写回 PTY（0ms 往返延迟）
+                if let Some(t) = &mut tab.terminal {
+                    for text in t.drain_pty_writes() {
+                        if let Some(pty) = &mut tab.pty {
+                            if let Err(e) = pty.write(text.as_bytes()) {
+                                s.error = Some(format!("写回 PTY 失败: {e}"));
+                            }
+                        }
+                    }
+                }
+
                 // 检测进程退出
                 if let Some(pty) = &mut tab.pty {
                     if let Ok(Some(status)) = pty.child.try_wait() {
@@ -560,6 +387,15 @@ impl HubApp {
                 }
             }
         }
+
+        // 当有任何正在运行的 AI 任务时阻止系统自动休眠，全部空闲后恢复省电策略
+        let any_running = self.sessions.iter().any(|s| s.status() == SessionStatus::Running);
+        if any_running {
+            self.sleep_inhibitor.prevent_sleep();
+        } else {
+            self.sleep_inhibitor.allow_sleep();
+        }
+
         if active_dirty || (background_dirty && self.in_overview) {
             ctx.request_repaint(); // 仅在前台活跃或全景看板时触发瞬时重绘
         } else if background_dirty {
@@ -692,6 +528,14 @@ impl HubApp {
                 match session {
                     Some(session) => {
                         action = terminal::show(ui, session, input_enabled, &theme);
+                        if let Some(tab) = session.tabs.get(session.active_tab) {
+                            if let Some(t) = &tab.terminal {
+                                if t.cols > 0 && t.rows > 0 {
+                                    self.last_grid_cols = t.cols;
+                                    self.last_grid_rows = t.rows;
+                                }
+                            }
+                        }
                     }
                     None => {
                         ui.centered_and_justified(|ui| {
