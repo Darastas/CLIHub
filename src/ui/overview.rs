@@ -200,13 +200,13 @@ fn show_global_overview(
             // 预览区域的宽度与等比高度
             let preview_margin_x = 10.0;
             let preview_margin_y = 10.0;
-            let header_h = 38.0;
+            let header_h = 30.0;
             let preview_w = card_width - preview_margin_x * 2.0;
 
             // 默认按 80 列 × 24 行的主终端标准等比计算卡片高度
             let default_aspect = (80.0 * orig_char_w) / (24.0 * orig_row_h);
             let preview_h = (preview_w / default_aspect).clamp(200.0, 380.0);
-            let card_height = header_h + preview_h + preview_margin_y * 2.0;
+            let card_height = header_h + preview_h + preview_margin_y;
 
             let total_sessions = sessions.len();
             let rows_count = (total_sessions + cols_count - 1) / cols_count;
@@ -253,9 +253,9 @@ fn show_global_overview(
                                 egui::StrokeKind::Inside,
                             );
 
-                            // ---- 卡片 Header（垂直精准绝对居中） ----
+                            // ---- 卡片 Header（垂直精准绝对对称居中） ----
                             let header_rect = Rect::from_min_size(card_rect.min, vec2(card_width, header_h));
-                            let card_center_y = header_rect.center().y;
+                            let card_center_y = header_rect.min.y + 15.0;
 
                             // 状态圆点
                             let status = s.status();
@@ -267,7 +267,7 @@ fn show_global_overview(
                             };
 
                             let dot_pos = Pos2::new(header_rect.min.x + 16.0, card_center_y);
-                            painter.circle_filled(dot_pos, 4.5, dot_color);
+                            painter.circle_filled(dot_pos, 3.5, dot_color);
 
                             // 会话名称
                             let name_fg = lerp_c(text_main, if dark { Color32::WHITE } else { Color32::BLACK }, hover_factor);
@@ -275,7 +275,7 @@ fn show_global_overview(
                                 Pos2::new(header_rect.min.x + 28.0, card_center_y),
                                 Align2::LEFT_CENTER,
                                 &s.name,
-                                FontId::proportional(14.0),
+                                FontId::proportional(13.5),
                                 name_fg,
                             );
 
@@ -749,12 +749,12 @@ fn show_session_tabs(
 
             let preview_margin_x = 10.0;
             let preview_margin_y = 10.0;
-            let header_h = 38.0;
+            let header_h = 30.0;
             let preview_w = card_width - preview_margin_x * 2.0;
 
             let default_aspect = (80.0 * orig_char_w) / (24.0 * orig_row_h);
             let preview_h = (preview_w / default_aspect).clamp(200.0, 380.0);
-            let card_height = header_h + preview_h + preview_margin_y * 2.0;
+            let card_height = header_h + preview_h + preview_margin_y;
 
             let total_tabs = s.tabs.len();
             // 总项目数 = 已有标签页 + 1 个「新建标签页」卡片
@@ -820,9 +820,9 @@ fn show_session_tabs(
                                 egui::StrokeKind::Inside,
                             );
 
-                            // ---- 卡片 Header（垂直绝对对称居中） ----
+                            // ---- 卡片 Header（垂直精准对称居中） ----
                             let tab_header_rect = Rect::from_min_size(card_rect.min, vec2(card_width, header_h));
-                            let header_center_y = tab_header_rect.center().y;
+                            let header_center_y = tab_header_rect.min.y + 15.0;
 
                             // 状态圆点
                             let is_alive = tab.alive.load(std::sync::atomic::Ordering::SeqCst);
@@ -832,7 +832,7 @@ fn show_session_tabs(
                                 Color32::from_gray(140)
                             };
                             let dot_pos = Pos2::new(tab_header_rect.min.x + 16.0, header_center_y);
-                            painter.circle_filled(dot_pos, 4.5, dot_color);
+                            painter.circle_filled(dot_pos, 3.5, dot_color);
 
                             // 标签名称 (Tab 1, Tab 2...)
                             let tab_title = format!("Tab {}", tab_idx + 1);
@@ -845,17 +845,17 @@ fn show_session_tabs(
                                 Pos2::new(tab_header_rect.min.x + 28.0, header_center_y),
                                 Align2::LEFT_CENTER,
                                 &tab_title,
-                                FontId::proportional(14.0),
+                                FontId::proportional(13.5),
                                 title_fg,
                             );
 
-                            let title_w = painter.layout_no_wrap(tab_title.clone(), FontId::proportional(14.0), text_main).rect.width();
+                            let title_w = painter.layout_no_wrap(tab_title.clone(), FontId::proportional(13.5), text_main).rect.width();
 
                             // 当前活跃指示微徽章 (高级磨砂胶囊微徽章，与软件整体质感 100% 对齐)
                             if is_current_tab {
-                                let badge_w = 40.0;
-                                let badge_h = 19.0;
-                                let badge_center_x = tab_header_rect.min.x + 28.0 + title_w + 8.0 + badge_w / 2.0;
+                                let badge_w = 38.0;
+                                let badge_h = 17.0;
+                                let badge_center_x = tab_header_rect.min.x + 28.0 + title_w + 7.0 + badge_w / 2.0;
                                 let badge_rect = Rect::from_center_size(
                                     Pos2::new(badge_center_x, header_center_y),
                                     vec2(badge_w, badge_h),
@@ -875,21 +875,21 @@ fn show_session_tabs(
                                 } else {
                                     Color32::from_gray(30)
                                 };
-                                painter.rect_filled(badge_rect, CornerRadius::same(5), active_badge_bg);
-                                painter.rect_stroke(badge_rect, CornerRadius::same(5), Stroke::new(0.5, active_badge_stroke), egui::StrokeKind::Inside);
+                                painter.rect_filled(badge_rect, CornerRadius::same(4), active_badge_bg);
+                                painter.rect_stroke(badge_rect, CornerRadius::same(4), Stroke::new(0.5, active_badge_stroke), egui::StrokeKind::Inside);
                                 painter.text(
                                     badge_rect.center(),
                                     Align2::CENTER_CENTER,
                                     "当前",
-                                    FontId::proportional(10.5),
+                                    FontId::proportional(10.0),
                                     active_text_fg,
                                 );
                             }
 
                             // 卡片右上角关闭按钮 ✕（精美微结构按键）
                             let tab_close_rect = Rect::from_center_size(
-                                Pos2::new(tab_header_rect.max.x - 18.0, header_center_y),
-                                vec2(22.0, 22.0),
+                                Pos2::new(tab_header_rect.max.x - 16.0, header_center_y),
+                                vec2(20.0, 20.0),
                             );
                             let tab_close_resp = ui.interact(
                                 tab_close_rect,
@@ -921,7 +921,7 @@ fn show_session_tabs(
                             painter.rect_filled(tab_close_rect, CornerRadius::same(5), tab_close_bg);
                             painter.rect_stroke(tab_close_rect, CornerRadius::same(5), Stroke::new(0.5, tab_close_stroke), egui::StrokeKind::Inside);
                             let cc = tab_close_rect.center();
-                            let ccd = 3.2;
+                            let ccd = 3.0;
                             painter.line_segment([cc + vec2(-ccd, -ccd), cc + vec2(ccd, ccd)], egui::Stroke::new(1.2, tab_close_fg));
                             painter.line_segment([cc + vec2(-ccd, ccd), cc + vec2(ccd, -ccd)], egui::Stroke::new(1.2, tab_close_fg));
 
