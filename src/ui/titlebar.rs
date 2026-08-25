@@ -113,7 +113,7 @@ pub fn show(ui: &mut Ui) -> bool {
     settings_clicked
 }
 
-/// 绘制一个标题栏控件，返回点击后要发送的命令。
+/// 绘制一个标题栏控件（标准 Windows 10/11 原生风格：满格平铺悬浮、1px 发丝精度矢量图标）
 fn draw_caption_button(ui: &mut Ui, titlebar: Rect, x: f32, icon: CaptionIcon) -> Option<ViewportCommand> {
     let btn_rect = Rect::from_min_size(Pos2::new(x, titlebar.top()), vec2(BTN_W, TITLEBAR_H));
     let btn = ui.interact(btn_rect, Id::new(("caption", x as u32)), Sense::click());
@@ -121,67 +121,64 @@ fn draw_caption_button(ui: &mut Ui, titlebar: Rect, x: f32, icon: CaptionIcon) -
     let is_close = matches!(icon, CaptionIcon::Close);
     let dark = ui.visuals().dark_mode;
 
-    // 悬浮背景：关闭键红色，其余灰
-    let hover_bg = if dark {
-        Color32::from_rgb(39, 39, 42) // Zinc-800
+    // 悬浮背景：标准 Windows 红色 (E81123) 用于关闭键，中性半透用于最小化/最大化键，完全平铺无圆角
+    let hover_bg = if is_close {
+        Color32::from_rgb(232, 17, 35)
+    } else if dark {
+        Color32::from_white_alpha(25)
     } else {
-        Color32::from_rgb(228, 228, 231) // Zinc-200
+        Color32::from_black_alpha(20)
     };
-    let bg = if hovered && is_close {
-        Color32::from_rgb(228, 62, 70) // Soft but bright red
-    } else if hovered {
-        hover_bg
-    } else {
-        Color32::TRANSPARENT
-    };
-    if bg != Color32::TRANSPARENT {
-        // Pill-shaped hover background, slightly shrunken
-        ui.painter().rect_filled(btn_rect.shrink2(vec2(6.0, 4.0)), 6.0, bg);
+
+    if hovered {
+        ui.painter().rect_filled(btn_rect, 0.0, hover_bg);
     }
 
-    // 图标颜色：关闭键悬浮时为白，其余灰
+    // 图标颜色：关闭键悬浮时为纯白，其余状态为标准灰/高亮
     let fg = if hovered && is_close {
         Color32::WHITE
+    } else if hovered {
+        if dark { Color32::WHITE } else { Color32::BLACK }
     } else if dark {
-        Color32::from_gray(200)
+        Color32::from_gray(210)
     } else {
         Color32::from_gray(70)
     };
+
     let c = btn_rect.center();
     match icon {
         CaptionIcon::Minimize => {
-            ui.painter()
-                .rect_filled(Rect::from_center_size(c, vec2(12.0, 1.5)), 0.0, fg);
+            // 标准 Windows 1px 细线最小化图标
+            ui.painter().line_segment(
+                [c + vec2(-5.0, 0.0), c + vec2(5.0, 0.0)],
+                Stroke::new(1.0, fg),
+            );
         }
         CaptionIcon::Maximize => {
-            ui.painter().rect_stroke(
-                Rect::from_center_size(c, vec2(11.0, 11.0)),
-                1.5,
-                Stroke::new(1.0, fg),
-                egui::StrokeKind::Inside,
-            );
+            // 标准 Windows 10x10 正方形最大化图标
+            let r = Rect::from_center_size(c, vec2(10.0, 10.0));
+            ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, fg), egui::StrokeKind::Inside);
         }
         CaptionIcon::Restore => {
-            // 两个交叠方块
-            ui.painter().rect_stroke(
-                Rect::from_center_size(c + vec2(2.0, -2.0), vec2(11.0, 11.0)),
-                1.5,
-                Stroke::new(1.0, fg),
-                egui::StrokeKind::Inside,
-            );
-            ui.painter().rect_stroke(
-                Rect::from_center_size(c + vec2(-2.0, 2.0), vec2(11.0, 11.0)),
-                1.5,
-                Stroke::new(1.0, fg),
-                egui::StrokeKind::Inside,
-            );
+            // 标准 Windows 10/11 交叠还原双窗口图标
+            let p = ui.painter();
+            // 后窗（露出的上部与右部线段）
+            p.line_segment([c + vec2(-3.0, -5.0), c + vec2(5.0, -5.0)], Stroke::new(1.0, fg));
+            p.line_segment([c + vec2(5.0, -5.0), c + vec2(5.0, 3.0)], Stroke::new(1.0, fg));
+            p.line_segment([c + vec2(3.0, 3.0), c + vec2(5.0, 3.0)], Stroke::new(1.0, fg));
+            p.line_segment([c + vec2(-3.0, -5.0), c + vec2(-3.0, -3.0)], Stroke::new(1.0, fg));
+
+            // 前窗（实心背景遮挡 + 矩形框）
+            let front_rect = Rect::from_min_size(c + vec2(-5.0, -3.0), vec2(8.0, 8.0));
+            let bg_fill = if hovered { hover_bg } else { ui.visuals().panel_fill };
+            p.rect_filled(front_rect, 0.0, bg_fill);
+            p.rect_stroke(front_rect, 0.0, Stroke::new(1.0, fg), egui::StrokeKind::Inside);
         }
         CaptionIcon::Close => {
-            let s = 5.5;
-            ui.painter()
-                .line_segment([c - vec2(s, s), c + vec2(s, s)], Stroke::new(1.4, fg));
-            ui.painter()
-                .line_segment([c - vec2(s, -s), c + vec2(s, -s)], Stroke::new(1.4, fg));
+            // 标准 Windows 10x10 细线叉号
+            let s = 5.0;
+            ui.painter().line_segment([c + vec2(-s, -s), c + vec2(s, s)], Stroke::new(1.0, fg));
+            ui.painter().line_segment([c + vec2(-s, s), c + vec2(s, -s)], Stroke::new(1.0, fg));
         }
     }
 
