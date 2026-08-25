@@ -225,15 +225,17 @@ fn show_global_overview(
                             );
 
                             let is_hovered = resp.hovered();
+                            let hover_factor = ui.ctx().animate_bool_with_time(
+                                egui::Id::new(("overview_card_h", idx)),
+                                is_hovered,
+                                0.15,
+                            );
 
                             // 绘制卡片背景与阴影
                             let painter = ui.painter().with_clip_rect(card_rect);
-                            let shadow_color = if is_hovered {
-                                Color32::from_black_alpha(if dark { 140 } else { 40 })
-                            } else {
-                                Color32::from_black_alpha(if dark { 70 } else { 18 })
-                            };
-                            let shadow_offset = if is_hovered { 6.0 } else { 2.5 };
+                            let shadow_alpha = ((if dark { 70.0 } else { 18.0 }) + (if dark { 70.0 } else { 22.0 }) * hover_factor) as u8;
+                            let shadow_color = Color32::from_black_alpha(shadow_alpha);
+                            let shadow_offset = 2.5 + 3.5 * hover_factor;
                             painter.rect_filled(
                                 card_rect.translate(vec2(0.0, shadow_offset)),
                                 CornerRadius::same(12),
@@ -242,8 +244,8 @@ fn show_global_overview(
 
                             painter.rect_filled(card_rect, CornerRadius::same(12), bg_card);
 
-                            let border_color = if is_hovered { border_hover } else { border_normal };
-                            let border_w = if is_hovered { 1.5 } else { 1.0 };
+                            let border_color = lerp_c(border_normal, border_hover, hover_factor);
+                            let border_w = 1.0 + 0.5 * hover_factor;
                             painter.rect_stroke(
                                 card_rect,
                                 CornerRadius::same(12),
@@ -251,8 +253,9 @@ fn show_global_overview(
                                 egui::StrokeKind::Inside,
                             );
 
-                            // ---- 卡片 Header ----
+                            // ---- 卡片 Header（垂直精准绝对居中） ----
                             let header_rect = Rect::from_min_size(card_rect.min, vec2(card_width, header_h));
+                            let card_center_y = header_rect.center().y;
 
                             // 状态圆点
                             let status = s.status();
@@ -263,23 +266,24 @@ fn show_global_overview(
                                 SessionStatus::Failed => (Color32::from_rgb(231, 76, 60), "启动失败 (Failed)"),
                             };
 
-                            let dot_pos = Pos2::new(header_rect.min.x + 16.0, header_rect.min.y + 19.0);
+                            let dot_pos = Pos2::new(header_rect.min.x + 16.0, card_center_y);
                             painter.circle_filled(dot_pos, 4.5, dot_color);
 
                             // 会话名称
+                            let name_fg = lerp_c(text_main, if dark { Color32::WHITE } else { Color32::BLACK }, hover_factor);
                             painter.text(
-                                Pos2::new(header_rect.min.x + 28.0, header_rect.min.y + 10.5),
-                                Align2::LEFT_TOP,
+                                Pos2::new(header_rect.min.x + 28.0, card_center_y),
+                                Align2::LEFT_CENTER,
                                 &s.name,
                                 FontId::proportional(14.0),
-                                text_main,
+                                name_fg,
                             );
 
                             // 右上角 Tab 数量标徽
                             let tab_badge = format!("{} tab{}", s.tabs.len(), if s.tabs.len() > 1 { "s" } else { "" });
                             painter.text(
-                                Pos2::new(header_rect.max.x - 14.0, header_rect.min.y + 11.5),
-                                Align2::RIGHT_TOP,
+                                Pos2::new(header_rect.max.x - 14.0, card_center_y),
+                                Align2::RIGHT_CENTER,
                                 tab_badge,
                                 FontId::proportional(11.0),
                                 text_sub,
@@ -774,15 +778,22 @@ fn show_session_tabs(
                             );
 
                             let is_hovered = resp.hovered();
+                            // 悬停动画插值：当前聚焦卡片常驻白色高亮，其他卡片平滑渐显
+                            let hover_factor = ui.ctx().animate_bool_with_time(
+                                egui::Id::new(("overview_tab_card_h", session_idx, tab_idx)),
+                                is_hovered && !is_current_tab,
+                                0.15,
+                            );
 
                             // 卡片阴影与背景
                             let painter = ui.painter().with_clip_rect(card_rect);
-                            let shadow_color = if is_hovered {
-                                Color32::from_black_alpha(if dark { 140 } else { 40 })
+                            let shadow_alpha = if is_current_tab {
+                                if dark { 150 } else { 40 }
                             } else {
-                                Color32::from_black_alpha(if dark { 70 } else { 18 })
+                                ((if dark { 70.0 } else { 18.0 }) + (if dark { 70.0 } else { 22.0 }) * hover_factor) as u8
                             };
-                            let shadow_offset = if is_hovered { 6.0 } else { 2.5 };
+                            let shadow_color = Color32::from_black_alpha(shadow_alpha);
+                            let shadow_offset = if is_current_tab { 6.0 } else { 2.5 + 3.5 * hover_factor };
                             painter.rect_filled(
                                 card_rect.translate(vec2(0.0, shadow_offset)),
                                 CornerRadius::same(12),
@@ -791,14 +802,17 @@ fn show_session_tabs(
 
                             painter.rect_filled(card_rect, CornerRadius::same(12), bg_card);
 
+                            // 当前聚焦卡片保持白色高亮边框；其他卡片渐变过渡
                             let border_color = if is_current_tab {
-                                if dark { Color32::from_rgb(0, 111, 238) } else { Color32::from_rgb(0, 111, 238) }
-                            } else if is_hovered {
                                 border_hover
                             } else {
-                                border_normal
+                                lerp_c(border_normal, border_hover, hover_factor)
                             };
-                            let border_w = if is_current_tab || is_hovered { 1.5 } else { 1.0 };
+                            let border_w = if is_current_tab {
+                                1.5
+                            } else {
+                                1.0 + 0.5 * hover_factor
+                            };
                             painter.rect_stroke(
                                 card_rect,
                                 CornerRadius::same(12),
@@ -806,8 +820,9 @@ fn show_session_tabs(
                                 egui::StrokeKind::Inside,
                             );
 
-                            // ---- 卡片 Header ----
+                            // ---- 卡片 Header（垂直绝对对称居中） ----
                             let tab_header_rect = Rect::from_min_size(card_rect.min, vec2(card_width, header_h));
+                            let header_center_y = tab_header_rect.center().y;
 
                             // 状态圆点
                             let is_alive = tab.alive.load(std::sync::atomic::Ordering::SeqCst);
@@ -816,46 +831,64 @@ fn show_session_tabs(
                             } else {
                                 Color32::from_gray(140)
                             };
-                            let dot_pos = Pos2::new(tab_header_rect.min.x + 16.0, tab_header_rect.min.y + 19.0);
+                            let dot_pos = Pos2::new(tab_header_rect.min.x + 16.0, header_center_y);
                             painter.circle_filled(dot_pos, 4.5, dot_color);
 
                             // 标签名称 (Tab 1, Tab 2...)
                             let tab_title = format!("Tab {}", tab_idx + 1);
+                            let title_fg = if is_current_tab {
+                                if dark { Color32::WHITE } else { Color32::BLACK }
+                            } else {
+                                lerp_c(text_main, if dark { Color32::WHITE } else { Color32::BLACK }, hover_factor)
+                            };
                             painter.text(
-                                Pos2::new(tab_header_rect.min.x + 28.0, tab_header_rect.min.y + 10.5),
-                                Align2::LEFT_TOP,
+                                Pos2::new(tab_header_rect.min.x + 28.0, header_center_y),
+                                Align2::LEFT_CENTER,
                                 &tab_title,
                                 FontId::proportional(14.0),
-                                text_main,
+                                title_fg,
                             );
 
-                            // 当前活跃指示微徽章
+                            let title_w = painter.layout_no_wrap(tab_title.clone(), FontId::proportional(14.0), text_main).rect.width();
+
+                            // 当前活跃指示微徽章 (高级磨砂胶囊微徽章，与软件整体质感 100% 对齐)
                             if is_current_tab {
-                                let badge_w = 42.0;
-                                let badge_rect = Rect::from_min_size(
-                                    Pos2::new(tab_header_rect.min.x + 82.0, tab_header_rect.min.y + 9.0),
-                                    vec2(badge_w, 20.0),
+                                let badge_w = 40.0;
+                                let badge_h = 19.0;
+                                let badge_center_x = tab_header_rect.min.x + 28.0 + title_w + 8.0 + badge_w / 2.0;
+                                let badge_rect = Rect::from_center_size(
+                                    Pos2::new(badge_center_x, header_center_y),
+                                    vec2(badge_w, badge_h),
                                 );
                                 let active_badge_bg = if dark {
-                                    Color32::from_rgba_unmultiplied(0, 111, 238, 45)
+                                    Color32::from_white_alpha(15)
                                 } else {
-                                    Color32::from_rgba_unmultiplied(0, 111, 238, 30)
+                                    Color32::from_black_alpha(12)
                                 };
-                                let active_badge_stroke = Color32::from_rgb(0, 111, 238).gamma_multiply(0.7);
-                                painter.rect_filled(badge_rect, 4.0, active_badge_bg);
-                                painter.rect_stroke(badge_rect, 4.0, Stroke::new(0.5, active_badge_stroke), egui::StrokeKind::Inside);
+                                let active_badge_stroke = if dark {
+                                    Color32::from_white_alpha(28)
+                                } else {
+                                    Color32::from_black_alpha(22)
+                                };
+                                let active_text_fg = if dark {
+                                    Color32::from_gray(240)
+                                } else {
+                                    Color32::from_gray(30)
+                                };
+                                painter.rect_filled(badge_rect, CornerRadius::same(5), active_badge_bg);
+                                painter.rect_stroke(badge_rect, CornerRadius::same(5), Stroke::new(0.5, active_badge_stroke), egui::StrokeKind::Inside);
                                 painter.text(
                                     badge_rect.center(),
                                     Align2::CENTER_CENTER,
                                     "当前",
                                     FontId::proportional(10.5),
-                                    Color32::from_rgb(0, 111, 238),
+                                    active_text_fg,
                                 );
                             }
 
-                            // 卡片右上角关闭按钮 ✕
+                            // 卡片右上角关闭按钮 ✕（精美微结构按键）
                             let tab_close_rect = Rect::from_center_size(
-                                Pos2::new(tab_header_rect.max.x - 18.0, tab_header_rect.center().y),
+                                Pos2::new(tab_header_rect.max.x - 18.0, header_center_y),
                                 vec2(22.0, 22.0),
                             );
                             let tab_close_resp = ui.interact(
@@ -863,22 +896,32 @@ fn show_session_tabs(
                                 egui::Id::new(("overview_tab_close", session_idx, tab_idx)),
                                 Sense::click(),
                             ).on_hover_text("关闭此标签页");
-                            let is_tab_close_hover = tab_close_resp.hovered();
+                            let close_hf = ui.ctx().animate_bool(
+                                egui::Id::new(("overview_tab_close_h", session_idx, tab_idx)),
+                                tab_close_resp.hovered(),
+                            );
                             let is_tab_closed = tab_close_resp.clicked();
-                            let tab_close_bg = if is_tab_close_hover {
-                                Color32::from_rgba_unmultiplied(231, 76, 60, if dark { 60 } else { 40 })
-                            } else {
-                                Color32::TRANSPARENT
-                            };
-                            let tab_close_fg = if is_tab_close_hover {
-                                Color32::from_rgb(231, 76, 60)
-                            } else {
-                                text_sub
-                            };
+                            
+                            let tab_close_bg = lerp_c(
+                                Color32::TRANSPARENT,
+                                Color32::from_rgba_unmultiplied(235, 75, 65, if dark { 45 } else { 30 }),
+                                close_hf,
+                            );
+                            let tab_close_stroke = lerp_c(
+                                Color32::TRANSPARENT,
+                                Color32::from_rgba_unmultiplied(235, 75, 65, if dark { 80 } else { 55 }),
+                                close_hf,
+                            );
+                            let tab_close_fg = lerp_c(
+                                if dark { Color32::from_gray(140) } else { Color32::from_gray(120) },
+                                Color32::WHITE,
+                                close_hf,
+                            );
 
                             painter.rect_filled(tab_close_rect, CornerRadius::same(5), tab_close_bg);
+                            painter.rect_stroke(tab_close_rect, CornerRadius::same(5), Stroke::new(0.5, tab_close_stroke), egui::StrokeKind::Inside);
                             let cc = tab_close_rect.center();
-                            let ccd = 3.0;
+                            let ccd = 3.2;
                             painter.line_segment([cc + vec2(-ccd, -ccd), cc + vec2(ccd, ccd)], egui::Stroke::new(1.2, tab_close_fg));
                             painter.line_segment([cc + vec2(-ccd, ccd), cc + vec2(ccd, -ccd)], egui::Stroke::new(1.2, tab_close_fg));
 
@@ -965,18 +1008,20 @@ fn show_session_tabs(
                                 Sense::click(),
                             );
                             let is_hovered = resp.hovered();
+                            let hover_factor = ui.ctx().animate_bool_with_time(
+                                egui::Id::new(("overview_tab_add_card_h", session_idx)),
+                                is_hovered,
+                                0.15,
+                            );
 
                             let painter = ui.painter().with_clip_rect(card_rect);
-                            let ghost_bg = if is_hovered {
-                                if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(8) }
-                            } else {
-                                if dark { Color32::from_white_alpha(4) } else { Color32::from_black_alpha(4) }
-                            };
-                            let ghost_stroke = if is_hovered {
-                                if dark { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(30) }
-                            } else {
-                                if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) }
-                            };
+                            let ghost_base_bg = if dark { Color32::from_white_alpha(4) } else { Color32::from_black_alpha(4) };
+                            let ghost_hover_bg = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(8) };
+                            let ghost_bg = lerp_c(ghost_base_bg, ghost_hover_bg, hover_factor);
+
+                            let ghost_base_stroke = if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) };
+                            let ghost_hover_stroke = if dark { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(30) };
+                            let ghost_stroke = lerp_c(ghost_base_stroke, ghost_hover_stroke, hover_factor);
 
                             painter.rect_filled(card_rect, CornerRadius::same(12), ghost_bg);
                             painter.rect_stroke(
@@ -987,11 +1032,7 @@ fn show_session_tabs(
                             );
 
                             let center = card_rect.center();
-                            let icon_fg = if is_hovered {
-                                if dark { Color32::WHITE } else { Color32::BLACK }
-                            } else {
-                                text_sub
-                            };
+                            let icon_fg = lerp_c(text_sub, if dark { Color32::WHITE } else { Color32::BLACK }, hover_factor);
 
                             painter.text(
                                 Pos2::new(center.x, center.y - 12.0),
