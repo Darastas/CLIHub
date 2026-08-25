@@ -122,7 +122,7 @@ fn show_global_overview(
     p.text(
         Pos2::new(icon_c.x + 14.0, row_center_y),
         Align2::LEFT_CENTER,
-        "全景多会话看板",
+        "全景工作区看板",
         FontId::new(15.0, egui::FontFamily::Proportional),
         text_main,
     );
@@ -130,7 +130,7 @@ fn show_global_overview(
     // 统计微徽章胶囊 (Sleek Monospace / Frosted Stats Pill)
     let running_count = sessions.iter().filter(|s| s.status() == SessionStatus::Running).count();
     let total_tabs: usize = sessions.iter().map(|s| s.tabs.len()).sum();
-    let stats_text = format!("{} 会话 · {} 运行中 · {} 标签", sessions.len(), running_count, total_tabs);
+    let stats_text = format!("{} 工作区 · {} 运行中 · {} 标签", sessions.len(), running_count, total_tabs);
     let stats_font = FontId::new(11.5, egui::FontFamily::Proportional);
     let stats_w = p.layout_no_wrap(stats_text.clone(), stats_font.clone(), Color32::WHITE).rect.width();
 
@@ -996,7 +996,7 @@ fn show_session_tabs(
                                     ui.close();
                                 }
 
-                                if ui.button("＋ 在此会话新建标签页").clicked() {
+                                if ui.button("＋ 在此工作区新建标签页").clicked() {
                                     action = Some(OverviewAction::NewTab(session_idx));
                                     ui.close();
                                 }
