@@ -205,11 +205,7 @@ fn resolve_command(command: &str, args: &[String]) -> (String, Vec<String>) {
     let resolved: String = if has_ext || has_sep {
         base_cmd.to_string()
     } else {
-        // 无扩展名：按 exe → cmd → bat → com 顺序在 PATH 中查找
-        ["exe", "cmd", "bat", "com"]
-            .iter()
-            .find_map(|ext| find_in_path(base_cmd, ext))
-            .unwrap_or_else(|| base_cmd.to_string())
+        find_in_path_fast(base_cmd).unwrap_or_else(|| base_cmd.to_string())
     };
 
     let lower = resolved.to_lowercase();
@@ -228,14 +224,17 @@ fn resolve_command(command: &str, args: &[String]) -> (String, Vec<String>) {
     (command.to_string(), args.to_vec())
 }
 
-/// 在 PATH 的每个目录里找 `name.<ext>` 是否存在，返回完整路径。
+/// 单遍遍历 PATH，依次探测 exe → cmd → bat → com，大幅减少磁盘 syscall 开销
 #[cfg(windows)]
-fn find_in_path(name: &str, ext: &str) -> Option<String> {
+fn find_in_path_fast(name: &str) -> Option<String> {
     let path = std::env::var_os("PATH")?;
+    let exts = ["exe", "cmd", "bat", "com"];
     for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(format!("{name}.{ext}"));
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().into_owned());
+        for ext in &exts {
+            let candidate = dir.join(format!("{name}.{ext}"));
+            if candidate.is_file() {
+                return Some(candidate.to_string_lossy().into_owned());
+            }
         }
     }
     None
@@ -250,7 +249,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn npm_shim_wrapped_with_cmd() {
-        if find_in_path("claude", "cmd").is_none() {
+        if find_in_path_fast("claude").is_none() {
             eprintln!("skip: 本机未安装 claude.cmd");
             return;
         }

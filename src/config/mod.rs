@@ -50,7 +50,7 @@ pub struct ThemeSettings {
 }
 
 fn default_color_scheme() -> String {
-    "Campbell".to_string()
+    "One Half Dark".to_string()
 }
 
 fn default_true() -> bool {
@@ -92,7 +92,7 @@ impl Default for NotificationSettings {
 impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
-            dark: false,
+            dark: true,
             color_scheme: default_color_scheme(),
             background: None,
             foreground: None,
@@ -127,21 +127,56 @@ impl Default for AppConfig {
 pub fn default_entries() -> Vec<CliEntry> {
     vec![
         CliEntry {
-            name: "Codex CLI".to_string(),
+            name: "Codex".to_string(),
             command: "codex".to_string(),
             args: Vec::new(),
-            cwd: None,
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\codex")),
             env: BTreeMap::new(),
         },
         CliEntry {
-            name: "Claude CLI".to_string(),
+            name: "Claude Code".to_string(),
             command: "claude".to_string(),
             args: Vec::new(),
-            cwd: None,
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\claude")),
+            env: BTreeMap::new(),
+        },
+        CliEntry {
+            name: "Antigravity".to_string(),
+            command: "agy".to_string(),
+            args: Vec::new(),
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\agy")),
+            env: BTreeMap::new(),
+        },
+        CliEntry {
+            name: "Opencode".to_string(),
+            command: "opencode".to_string(),
+            args: Vec::new(),
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\opencode")),
+            env: BTreeMap::new(),
+        },
+        CliEntry {
+            name: "Oh My Pi".to_string(),
+            command: "omp".to_string(),
+            args: Vec::new(),
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\omp")),
+            env: BTreeMap::new(),
+        },
+        CliEntry {
+            name: "Mimo".to_string(),
+            command: "mimo".to_string(),
+            args: Vec::new(),
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\mimo")),
             env: BTreeMap::new(),
         },
         CliEntry {
             name: "Terminal".to_string(),
+            command: default_shell(),
+            args: Vec::new(),
+            cwd: Some(PathBuf::from(r"D:\cli-workspace\terminal")),
+            env: BTreeMap::new(),
+        },
+        CliEntry {
+            name: "My Server".to_string(),
             command: default_shell(),
             args: Vec::new(),
             cwd: None,

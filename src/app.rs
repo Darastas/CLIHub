@@ -34,6 +34,7 @@ pub struct HubApp {
     notification_draft: NotificationSettings,
     notification_service: NotificationService,
     in_overview: bool,
+    overview_session: Option<usize>,
 }
 
 fn home_dir() -> PathBuf {
@@ -278,6 +279,7 @@ impl HubApp {
             notification_draft: initial_notification,
             notification_service: NotificationService::new(),
             in_overview: false,
+            overview_session: None,
         };
         // 自动为默认终端会话开第一个标签页，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -369,7 +371,7 @@ impl HubApp {
         self.sync_config();
     }
 
-    /// 为某个会话新建一个标签页并激活。
+    /// 为某个会话新建一个标签页并激活（后台异步非阻塞派生）。
     fn spawn_tab(&mut self, session_idx: usize) {
         let term_theme = self.build_theme();
         let dark_mode = self.config.theme.dark;
@@ -381,17 +383,23 @@ impl HubApp {
         let command = s.command.clone();
         let cwd = s.cwd.clone();
         let mut inst = TerminalInstance::new();
-        match PtyHandle::spawn(&command, &[], &cwd, 24, 80, dark_mode) {
-            Ok((pty, rx)) => {
-                inst.alive = pty.alive.clone();
-                inst.terminal = Some(Terminal::new(24, 80, term_theme.to_theme_colors()));
-                inst.pty = Some(pty);
-                inst.rx = Some(rx);
-            }
-            Err(e) => {
-                s.error = Some(format!("无法启动 `{command}`: {e:#}"));
-            }
-        }
+        // 立即初始化终端字符网格，保证 0ms 无缝切屏呈现
+        inst.terminal = Some(Terminal::new(24, 80, term_theme.to_theme_colors()));
+        inst.alive.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // 异步派生 PTY 进程，彻底杜绝主 UI 线程卡顿
+        let (spawn_tx, spawn_rx) = crossbeam_channel::bounded(1);
+        let cmd_clone = command.clone();
+        let cwd_clone = cwd.clone();
+        std::thread::Builder::new()
+            .name(format!("spawn-{}", command))
+            .spawn(move || {
+                let res = PtyHandle::spawn(&cmd_clone, &[], &cwd_clone, 24, 80, dark_mode);
+                let _ = spawn_tx.send(res);
+            })
+            .ok();
+
+        inst.pending_pty = Some(spawn_rx);
         s.tabs.push(inst);
         s.active_tab = s.tabs.len() - 1;
     }
@@ -406,6 +414,7 @@ impl HubApp {
         }
         s.tabs[tab_idx].pty.take(); // Drop 会 kill 子进程
         s.tabs[tab_idx].rx = None;
+        s.tabs[tab_idx].pending_pty = None;
         s.tabs[tab_idx].alive.store(false, std::sync::atomic::Ordering::SeqCst);
         s.tabs.remove(tab_idx);
         if s.tabs.is_empty() {
@@ -438,10 +447,42 @@ impl HubApp {
         }
 
         let window_focused = ctx.input(|i| i.focused);
-        let mut dirty = false;
+        let mut active_dirty = false;
+        let mut background_dirty = false;
 
         for (si, s) in self.sessions.iter_mut().enumerate() {
             for (ti, tab) in s.tabs.iter_mut().enumerate() {
+                let is_active_tab = self.selected == si && s.active_tab == ti;
+
+                // 异步 PTY 轮询接入
+                if let Some(pending) = &tab.pending_pty {
+                    match pending.try_recv() {
+                        Ok(Ok((pty, rx))) => {
+                            tab.alive = pty.alive.clone();
+                            tab.pty = Some(pty);
+                            tab.rx = Some(rx);
+                            tab.pending_pty = None;
+                            if is_active_tab || self.in_overview {
+                                active_dirty = true;
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            s.error = Some(format!("无法启动 `{}`: {e:#}", s.command));
+                            tab.alive.store(false, std::sync::atomic::Ordering::SeqCst);
+                            tab.pending_pty = None;
+                            if is_active_tab || self.in_overview {
+                                active_dirty = true;
+                            }
+                        }
+                        Err(crossbeam_channel::TryRecvError::Empty) => {
+                            // 正在后台异步创建中
+                        }
+                        Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                            tab.pending_pty = None;
+                        }
+                    }
+                }
+
                 // 终端需要写回 PTY 的应答（DSR 光标位置等），立即转发
                 if let Some(t) = &mut tab.terminal {
                     for text in t.drain_pty_writes() {
@@ -457,8 +498,8 @@ impl HubApp {
                         match evt {
                             TerminalEvent::Bell => {
                                 if self.config.notification.enabled && self.config.notification.on_attention_needed {
-                                    let is_active_tab = window_focused && self.selected == si && s.active_tab == ti;
-                                    if !self.config.notification.only_when_unfocused || !is_active_tab {
+                                    let is_focused_tab = window_focused && is_active_tab;
+                                    if !self.config.notification.only_when_unfocused || !is_focused_tab {
                                         self.notification_service.send(
                                             &format!("🔔 {}", s.name),
                                             "AI 任务需要确认或已就绪",
@@ -477,7 +518,11 @@ impl HubApp {
                 // 拉取 PTY 输出 → 喂进 alacritty 网格
                 if let Some(rx) = &tab.rx {
                     if io_loop::drain(rx, &mut tab.terminal) > 0 {
-                        dirty = true;
+                        if is_active_tab || self.in_overview {
+                            active_dirty = true;
+                        } else {
+                            background_dirty = true;
+                        }
                     }
                 }
 
@@ -492,8 +537,8 @@ impl HubApp {
 
                         // 触发任务完成 / 退出通知
                         if self.config.notification.enabled && self.config.notification.on_process_exit {
-                            let is_active_tab = window_focused && self.selected == si && s.active_tab == ti;
-                            if !self.config.notification.only_when_unfocused || !is_active_tab {
+                            let is_focused_tab = window_focused && is_active_tab;
+                            if !self.config.notification.only_when_unfocused || !is_focused_tab {
                                 let (title, body) = if status.success() {
                                     (format!("🎉 {}", s.name), "任务已完成".to_string())
                                 } else {
@@ -515,17 +560,35 @@ impl HubApp {
                 }
             }
         }
-        if dirty {
-            ctx.request_repaint(); // 有输出立即重绘
+        if active_dirty || (background_dirty && self.in_overview) {
+            ctx.request_repaint(); // 仅在前台活跃或全景看板时触发瞬时重绘
+        } else if background_dirty {
+            // 后台会话有数据时，限频 10Hz 轻量通知，避免 GPU 100% 空转
+            ctx.request_repaint_after(Duration::from_millis(100));
+        } else {
+            // 空闲时用低频重绘（仅维持光标闪烁 ~2Hz），避免 30fps 空转烧 CPU
+            ctx.request_repaint_after(Duration::from_millis(500));
         }
-        // 空闲时用低频重绘（仅维持光标闪烁 ~2Hz），避免 30fps 空转烧 CPU
-        ctx.request_repaint_after(Duration::from_millis(500));
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {
+        // 全局快捷键：Esc 退出看板（单会话全景返回全局全景，全局全景退出看板）
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if self.in_overview {
+                if self.overview_session.is_some() {
+                    self.overview_session = None;
+                } else {
+                    self.in_overview = false;
+                }
+            }
+        }
+
         // 全局快捷键：Ctrl+Shift+O 切换全景多会话看板
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::O)) {
             self.in_overview = !self.in_overview;
+            if !self.in_overview {
+                self.overview_session = None;
+            }
         }
 
         // 自定义无边框标题栏（占用顶部，面板自动下移）
@@ -543,10 +606,14 @@ impl HubApp {
             });
         if side.toggle_overview {
             self.in_overview = !self.in_overview;
+            if !self.in_overview {
+                self.overview_session = None;
+            }
         }
         if let Some(idx) = side.select {
             self.selected = idx;
             self.in_overview = false;
+            self.overview_session = None;
             // 首次选中且无标签页时，自动开第一个标签；后续用右侧 + 开新标签
             let should_start = {
                 let s = &self.sessions[idx];
@@ -585,11 +652,12 @@ impl HubApp {
         let theme = self.build_theme();
         egui::CentralPanel::default_margins().show(ui, |ui| {
             if self.in_overview {
-                if let Some(ov_act) = crate::ui::overview::show(ui, &self.sessions, &self.config.theme, &theme) {
+                if let Some(ov_act) = crate::ui::overview::show(ui, &self.sessions, self.overview_session, &self.config.theme, &theme) {
                     match ov_act {
                         crate::ui::overview::OverviewAction::SelectSessionTab { session_idx, tab_idx } => {
                             self.selected = session_idx;
                             self.in_overview = false;
+                            self.overview_session = None;
                             let should_start = {
                                 let s = &self.sessions[session_idx];
                                 s.tabs.is_empty() && s.status() != SessionStatus::Failed
@@ -605,7 +673,17 @@ impl HubApp {
                         crate::ui::overview::OverviewAction::NewTab(session_idx) => {
                             self.selected = session_idx;
                             self.in_overview = false;
+                            self.overview_session = None;
                             self.spawn_tab(session_idx);
+                        }
+                        crate::ui::overview::OverviewAction::BrowseSessionTabs(session_idx) => {
+                            self.overview_session = Some(session_idx);
+                        }
+                        crate::ui::overview::OverviewAction::BackToGlobalOverview => {
+                            self.overview_session = None;
+                        }
+                        crate::ui::overview::OverviewAction::CloseTab { session_idx, tab_idx } => {
+                            self.kill_tab(session_idx, tab_idx);
                         }
                     }
                 }

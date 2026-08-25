@@ -55,7 +55,7 @@ impl SearchState {
 pub enum SessionStatus {
     /// 尚未启动任何实例
     Idle,
-    /// 至少一个实例正在运行
+    /// 至少一个实例正在运行或正在启动中
     Running,
     /// 实例均已退出
     Exited,
@@ -69,8 +69,10 @@ pub struct TerminalInstance {
     pub terminal: Option<Terminal>,
     /// 由 PTY reader 线程发来的原始字节块
     pub rx: Option<Receiver<Vec<u8>>>,
-    /// PTY 句柄；None 表示未启动
+    /// PTY 句柄；None 表示未启动或正在异步启动
     pub pty: Option<PtyHandle>,
+    /// 异步派生通道：后台线程派生子进程，主线程非阻塞轮询接收
+    pub pending_pty: Option<Receiver<anyhow::Result<(PtyHandle, Receiver<Vec<u8>>)>>>,
     /// 进程是否存活
     pub alive: Arc<AtomicBool>,
     /// IME 是否正处于预编辑（拼音输入中）状态
@@ -93,6 +95,7 @@ impl TerminalInstance {
             terminal: None,
             rx: None,
             pty: None,
+            pending_pty: None,
             alive: Arc::new(AtomicBool::new(false)),
             ime_composing: false,
             ime_preedit: String::new(),
@@ -104,7 +107,7 @@ impl TerminalInstance {
     }
 
     pub fn is_running(&self) -> bool {
-        self.pty.is_some() && self.alive.load(Ordering::SeqCst)
+        self.pending_pty.is_some() || (self.pty.is_some() && self.alive.load(Ordering::SeqCst))
     }
 }
 
@@ -156,5 +159,4 @@ impl Session {
             SessionStatus::Exited
         }
     }
-
 }
