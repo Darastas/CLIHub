@@ -273,8 +273,19 @@ pub fn show(
     }
     ui.add_space(16.0); // Spacing before cards
 
-    // ---- 会话卡片（点击选中，拖动排序）----
+    // ---- 会话卡片（点击选中，拖动排序）与 底部 Ctrl+C 退出通知 ----
+    let notif_h = 36.0;
+    let bottom_margin = 12.0;
+    let target_bottom_y = ui.max_rect().max.y - bottom_margin;
+    let notif_rect = Rect::from_min_max(
+        Pos2::new(ui.max_rect().min.x + 12.0, target_bottom_y - notif_h),
+        Pos2::new(ui.max_rect().max.x - 12.0, target_bottom_y),
+    );
+
+    let available_scroll_h = (notif_rect.min.y - 8.0 - ui.cursor().min.y).max(40.0);
+
     egui::ScrollArea::vertical()
+        .max_height(available_scroll_h)
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = ROW_SPACING;
@@ -301,16 +312,68 @@ pub fn show(
             }
         });
 
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(format!("{} session(s)", sessions.len()))
-                .size(10.0)
-                .color(muted(dark)),
+    // 绘制底部区域：若触发 Ctrl+C 提示则以高级半透明磨砂玻璃卡片淡入呈现，下边缘与右侧终端框严格对齐，左右与卡片对齐
+    let active_ctrl_c = sessions.get(selected).and_then(|s| s.tabs.get(s.active_tab)).and_then(|t| t.last_ctrl_c);
+    let p = ui.painter();
+
+    let mut is_ctrl_c_showing = false;
+    if let Some(last) = active_ctrl_c {
+        let elapsed_ms = last.elapsed().as_millis();
+        const CTRL_C_TIMEOUT_MS: u128 = 1800;
+        if elapsed_ms <= CTRL_C_TIMEOUT_MS {
+            is_ctrl_c_showing = true;
+            let fade_t = if elapsed_ms < 1000 {
+                1.0
+            } else {
+                1.0 - ((elapsed_ms - 1000) as f32 / 800.0).clamp(0.0, 1.0)
+            };
+            let alpha = (fade_t * 255.0) as u8;
+
+            // 1) 柔和下沉中性阴影
+            p.rect_filled(notif_rect.translate(vec2(0.0, 2.0)), 10.0, Color32::from_black_alpha((alpha as f32 * 0.40) as u8));
+            // 2) 高级磨砂玻璃卡片底色 (Acrylic Frosted Glass)
+            let notif_bg = if dark {
+                Color32::from_rgba_unmultiplied(28, 30, 38, (alpha as f32 * 0.92) as u8)
+            } else {
+                Color32::from_rgba_unmultiplied(248, 250, 255, (alpha as f32 * 0.95) as u8)
+            };
+            p.rect_filled(notif_rect, 10.0, notif_bg);
+            // 3) 发丝级极细微边框
+            let notif_stroke = if dark {
+                Color32::from_white_alpha((alpha as f32 * 0.18) as u8)
+            } else {
+                Color32::from_black_alpha((alpha as f32 * 0.14) as u8)
+            };
+            p.rect_stroke(notif_rect, 10.0, egui::Stroke::new(0.5, notif_stroke), egui::StrokeKind::Inside);
+
+            // 4) 提示文字（绝对水平垂直居中）
+            let text_color = if dark {
+                Color32::from_rgba_unmultiplied(240, 243, 250, alpha)
+            } else {
+                Color32::from_rgba_unmultiplied(30, 35, 45, alpha)
+            };
+            p.text(
+                notif_rect.center(),
+                Align2::CENTER_CENTER,
+                "再按一次 Ctrl+C 终止/退出",
+                FontId::new(12.0, egui::FontFamily::Proportional),
+                text_color,
+            );
+
+            ui.ctx().request_repaint(); // 维持平滑淡出过渡
+        }
+    }
+
+    if !is_ctrl_c_showing {
+        // 常态下显示淡雅的会话计数
+        p.text(
+            notif_rect.center(),
+            Align2::CENTER_CENTER,
+            format!("{} session{}", sessions.len(), if sessions.len() > 1 { "s" } else { "" }),
+            FontId::new(11.0, egui::FontFamily::Proportional),
+            muted(dark).gamma_multiply(0.6),
         );
-    });
+    }
 
     action
 }

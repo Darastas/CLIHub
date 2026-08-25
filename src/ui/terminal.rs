@@ -682,10 +682,9 @@ pub fn show(
 
     // ---- 终端区域 ----
     const PAD_X: f32 = 12.0;
-    const HINT_H: f32 = 28.0;
     let term_size = vec2(
         ui.available_width() - 24.0, // 外边距
-        (ui.available_height() - HINT_H - 12.0).max(60.0),
+        (ui.available_height() - 12.0).max(60.0),
     );
     
     ui.horizontal(|ui| {
@@ -933,61 +932,6 @@ pub fn show(
             }
         }
 
-        // 渲染双击 Ctrl+C 防误触浮动提示条（高级半透明毛玻璃质感，文字完全居中，停留时间延长容错）
-        if let Some(last) = tab.last_ctrl_c {
-            let elapsed_ms = last.elapsed().as_millis();
-            const CTRL_C_TIMEOUT_MS: u128 = 1800;
-            if elapsed_ms <= CTRL_C_TIMEOUT_MS {
-                // 前 1000ms 保持稳定清晰呈现，后 800ms 优雅淡出
-                let fade_t = if elapsed_ms < 1000 {
-                    1.0
-                } else {
-                    1.0 - ((elapsed_ms - 1000) as f32 / 800.0).clamp(0.0, 1.0)
-                };
-                let alpha = (fade_t * 255.0) as u8;
-
-                let hud_w = 220.0;
-                let hud_h = 32.0;
-                let hud_rect = Rect::from_center_size(
-                    Pos2::new(term_rect.center().x, term_rect.max.y - 30.0),
-                    vec2(hud_w, hud_h),
-                );
-
-                let p = ui.painter().with_clip_rect(term_rect);
-                // 1) 柔和下沉中性投影
-                p.rect_filled(hud_rect.translate(vec2(0.0, 2.0)), 16.0, Color32::from_black_alpha((alpha as f32 * 0.45) as u8));
-                // 2) 高级半透明暗色磨砂玻璃底色（Acrylic / Frosted Glass）
-                let hud_bg = if dark {
-                    Color32::from_rgba_unmultiplied(20, 22, 28, (alpha as f32 * 0.85) as u8)
-                } else {
-                    Color32::from_rgba_unmultiplied(250, 252, 255, (alpha as f32 * 0.90) as u8)
-                };
-                p.rect_filled(hud_rect, 16.0, hud_bg);
-                // 3) 发丝级极细微边框（与全软件主按键一致）
-                let hud_stroke = if dark {
-                    Color32::from_white_alpha((alpha as f32 * 0.16) as u8)
-                } else {
-                    Color32::from_black_alpha((alpha as f32 * 0.14) as u8)
-                };
-                p.rect_stroke(hud_rect, 16.0, egui::Stroke::new(0.5, hud_stroke), egui::StrokeKind::Inside);
-
-                // 4) 纯净高亮文字（绝对居中对齐，无指示灯）
-                let text_color = if dark {
-                    Color32::from_rgba_unmultiplied(240, 243, 250, alpha)
-                } else {
-                    Color32::from_rgba_unmultiplied(30, 35, 45, alpha)
-                };
-                p.text(
-                    hud_rect.center(),
-                    Align2::CENTER_CENTER,
-                    "再按一次 Ctrl+C 终止/退出",
-                    FontId::new(12.5, egui::FontFamily::Proportional),
-                    text_color,
-                );
-
-                ui.ctx().request_repaint(); // 保证淡出动画平滑过渡
-            }
-        }
 
         // 在光标位置渲染 IME 预编辑文字（拼音）
         if !tab.ime_preedit.is_empty() {
