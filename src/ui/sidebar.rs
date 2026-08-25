@@ -276,7 +276,7 @@ pub fn show(
     ui.add_space(10.0); // Spacing before cards (收紧为 10px，形成有机整体)
 
     // ---- 会话卡片（点击选中，拖动排序）与 底部 Ctrl+C 退出通知 ----
-    let card_h = 48.0; // 与工作区卡片 bg_rect 高度 100% 一致 (ROW_HEIGHT 56.0 - margin_y 8.0 = 48.0)
+    let card_h = 38.0;
     let margin_x = 12.0;
     let target_bottom_y = ui.memory(|mem| mem.data.get_temp::<f32>(Id::new("term_bottom_y")))
         .unwrap_or_else(|| ui.max_rect().max.y - 20.0);
@@ -315,7 +315,7 @@ pub fn show(
             }
         });
 
-    // 绘制底部区域：若触发 Ctrl+C 提示，以标准工作区卡片样式平滑渐显呈现，下边缘与右侧终端框绝对对齐
+    // 绘制底部区域：若触发 Ctrl+C 提示，以纯净中性毛玻璃微卡片样式（无多余颜色/无指示灯，绝对居中）平滑渐显呈现
     let active_ctrl_c = sessions.get(selected).and_then(|s| s.tabs.get(s.active_tab)).and_then(|t| t.last_ctrl_c);
     let p = ui.painter();
 
@@ -336,53 +336,41 @@ pub fn show(
             let slide_y = (1.0 - (elapsed_ms as f32 / 150.0).clamp(0.0, 1.0)) * 3.0;
             let visual_notif_rect = notif_rect.translate(vec2(0.0, slide_y));
 
-            // 完全复用工作区卡片（高质感选中卡片同款底色与描边）
-            let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
-            let sel_color = if dark { 
-                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 40)
-            } else { 
-                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 24)
+            // 纯净中性磨砂玻璃底色（无高饱和色彩，与顶部功能键/基础卡片一致）
+            let card_bg = if dark {
+                Color32::from_white_alpha((10.0 * fade_t) as u8)
+            } else {
+                Color32::from_black_alpha((10.0 * fade_t) as u8)
             };
-            let mut card_bg = sel_color;
-            card_bg[3] = (card_bg[3] as f32 * fade_t) as u8;
+            let shadow_color = if dark {
+                Color32::from_black_alpha((60.0 * fade_t) as u8)
+            } else {
+                Color32::from_black_alpha((15.0 * fade_t) as u8)
+            };
+            p.rect_filled(visual_notif_rect.translate(vec2(0.0, 1.5)), 10.0, shadow_color);
+            p.rect_filled(visual_notif_rect, 10.0, card_bg);
 
-            let shadow_color = if dark { Color32::from_black_alpha((100.0 * fade_t) as u8) } else { Color32::from_black_alpha((20.0 * fade_t) as u8) };
-            p.rect_filled(visual_notif_rect.translate(vec2(0.0, 2.0)), 12.0, shadow_color);
-            p.rect_filled(visual_notif_rect, 12.0, card_bg);
+            let stroke_c = if dark {
+                Color32::from_white_alpha((18.0 * fade_t) as u8)
+            } else {
+                Color32::from_black_alpha((16.0 * fade_t) as u8)
+            };
+            p.rect_stroke(visual_notif_rect, 10.0, Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
 
-            let stroke_color = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.5);
-            let mut stroke_c = stroke_color;
-            stroke_c[3] = (stroke_c[3] as f32 * fade_t) as u8;
-            p.rect_stroke(visual_notif_rect, 12.0, Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
+            // 纯粹、优雅的高亮提示文本（绝对水平垂直居中，无任何多余指示灯）
+            let text_c = if dark {
+                Color32::from_rgba_unmultiplied(240, 243, 250, (255.0 * fade_t) as u8)
+            } else {
+                Color32::from_rgba_unmultiplied(30, 35, 45, (255.0 * fade_t) as u8)
+            };
 
-            let text_start_x = visual_notif_rect.min.x + 12.0;
-            let mut name_c = if dark { Color32::WHITE } else { Color32::BLACK };
-            name_c[3] = (name_c[3] as f32 * fade_t) as u8;
-            let mut cwd_c = if dark { Color32::from_white_alpha(160) } else { Color32::from_black_alpha(160) };
-            cwd_c[3] = (cwd_c[3] as f32 * fade_t) as u8;
-
-            // 第一行标题：Ctrl+C
             p.text(
-                Pos2::new(text_start_x, visual_notif_rect.min.y + 8.0),
-                Align2::LEFT_TOP,
-                "Ctrl + C",
-                FontId::new(14.0, egui::FontFamily::Monospace),
-                name_c,
+                visual_notif_rect.center(),
+                Align2::CENTER_CENTER,
+                "再按一次 Ctrl+C 终止/退出",
+                FontId::new(12.5, egui::FontFamily::Proportional),
+                text_c,
             );
-            // 第二行副标题：再按一次终止后台 / 退出
-            p.text(
-                Pos2::new(text_start_x, visual_notif_rect.min.y + 27.0),
-                Align2::LEFT_TOP,
-                "再按一次终止后台 / 退出",
-                FontId::new(11.5, egui::FontFamily::Monospace),
-                cwd_c,
-            );
-
-            // 右侧状态圆点 (警示红/橙色)
-            let dot_center = Pos2::new(visual_notif_rect.right() - 20.0, visual_notif_rect.center().y);
-            let mut dot_c = Color32::from_rgb(231, 76, 60);
-            dot_c[3] = (255.0 * fade_t) as u8;
-            p.circle_filled(dot_center, 4.0, dot_c);
 
             ui.ctx().request_repaint(); // 维持平滑淡出过渡
         }
