@@ -649,7 +649,6 @@ pub fn show(
     let (col_w, row_h) = ui.fonts_mut(|f| (f.glyph_width(&font_id, ' '), f.row_height(&font_id)));
 
     // ---- 终端区域 ----
-    const PAD_X: f32 = 12.0;
     let term_size = vec2(
         ui.available_width() - 24.0, // 外边距
         (ui.available_height() - 12.0).max(60.0),
@@ -673,10 +672,22 @@ pub fn show(
         let window_focused = ui.input(|i| i.focused);
         let focused = resp.has_focus() && window_focused && !find_input_focused;
 
-        // 网格可用区域：内边距
-        let grid_rect = Rect::from_min_max(
-            term_rect.min + vec2(PAD_X, 8.0),
-            term_rect.max - vec2(PAD_X, 8.0),
+        // 动态计算行列数并平分像素余数，保证上下左右 100% 绝对居中对称
+        let min_margin_x = 12.0f32;
+        let min_margin_y = 8.0f32;
+        let avail_w = (term_rect.width() - min_margin_x * 2.0).max(col_w);
+        let avail_h = (term_rect.height() - min_margin_y * 2.0).max(row_h);
+        let cols = ((avail_w / col_w).floor().max(1.0)) as u16;
+        let rows = ((avail_h / row_h).floor().max(1.0)) as u16;
+
+        let grid_w = cols as f32 * col_w;
+        let grid_h = rows as f32 * row_h;
+        let pad_x = ((term_rect.width() - grid_w) / 2.0).max(min_margin_x);
+        let pad_y = ((term_rect.height() - grid_h) / 2.0).max(min_margin_y);
+
+        let grid_rect = Rect::from_min_size(
+            term_rect.min + vec2(pad_x, pad_y),
+            vec2(grid_w, grid_h),
         );
 
         // 背景 + 圆角
@@ -707,10 +718,6 @@ pub fn show(
             );
             return;
         };
-
-        // 按网格尺寸换算行列数并同步到当前标签
-        let cols = ((grid_rect.width() / col_w).floor().max(1.0)) as u16;
-        let rows = ((grid_rect.height() / row_h).floor().max(1.0)) as u16;
 
         let find_bar_rect = if tab.search_state.is_open {
             let bar_w = 340.0;
@@ -803,7 +810,7 @@ pub fn show(
         }
 
         if let Some(t) = &mut tab.terminal {
-            t.resize(cols, rows);
+            t.resize(cols, rows, col_w.round() as u16, row_h.round() as u16);
         }
         if let Some(p) = &mut tab.pty {
             p.resize(cols, rows);

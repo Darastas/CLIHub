@@ -93,8 +93,8 @@ pub enum TerminalEvent {
 pub struct HubListener {
     pty_tx: Sender<String>,
     event_tx: Sender<TerminalEvent>,
-    /// 当前 (cols, rows)，供尺寸查询应答
-    size: Arc<Mutex<(usize, usize)>>,
+    /// 当前 (cols, rows, cell_width, cell_height)，供尺寸查询应答
+    size: Arc<Mutex<(usize, usize, u16, u16)>>,
     /// 主题颜色配置，供 OSC 颜色查询应答
     theme_colors: Arc<Mutex<TermThemeColors>>,
 }
@@ -116,12 +116,12 @@ impl EventListener for HubListener {
             }
             // 查询窗口/单元格尺寸（XTWINOPS）
             Event::TextAreaSizeRequest(formatter) => {
-                let (cols, rows) = *self.size.lock().unwrap();
+                let (cols, rows, cell_w, cell_h) = *self.size.lock().unwrap();
                 let size = WindowSize {
                     num_lines: rows as u16,
                     num_cols: cols as u16,
-                    cell_width: 8,
-                    cell_height: 16,
+                    cell_width: cell_w,
+                    cell_height: cell_h,
                 };
                 let _ = self.pty_tx.send(formatter(size));
             }
@@ -172,7 +172,7 @@ pub struct Terminal {
     processor: Processor,
     pty_rx: Receiver<String>,
     event_rx: Receiver<TerminalEvent>,
-    size: Arc<Mutex<(usize, usize)>>,
+    size: Arc<Mutex<(usize, usize, u16, u16)>>,
     pub theme_colors: Arc<Mutex<TermThemeColors>>,
     pub cols: u16,
     pub rows: u16,
@@ -183,7 +183,7 @@ impl Terminal {
     pub fn new(cols: u16, rows: u16, theme_colors: TermThemeColors) -> Self {
         let (pty_tx, pty_rx) = unbounded();
         let (event_tx, event_rx) = unbounded();
-        let size = Arc::new(Mutex::new((cols as usize, rows as usize)));
+        let size = Arc::new(Mutex::new((cols as usize, rows as usize, 9, 19)));
         let theme_colors = Arc::new(Mutex::new(theme_colors));
         let listener = HubListener {
             pty_tx,
@@ -225,16 +225,21 @@ impl Terminal {
         self.feed(text.as_bytes());
     }
 
-    pub fn resize(&mut self, cols: u16, rows: u16) {
+    pub fn resize(&mut self, cols: u16, rows: u16, cell_w: u16, cell_h: u16) {
         if cols == 0 || rows == 0 {
             return;
         }
+        let cell_w = cell_w.max(1);
+        let cell_h = cell_h.max(1);
         if self.cols == cols && self.rows == rows {
+            let mut s = self.size.lock().unwrap();
+            s.2 = cell_w;
+            s.3 = cell_h;
             return;
         }
         self.cols = cols;
         self.rows = rows;
-        *self.size.lock().unwrap() = (cols as usize, rows as usize);
+        *self.size.lock().unwrap() = (cols as usize, rows as usize, cell_w, cell_h);
         self.term.resize(TermDims {
             cols: cols as usize,
             rows: rows as usize,
@@ -483,7 +488,7 @@ mod tests {
         let mut t = Terminal::new(10, 5, TermThemeColors::default());
         assert_eq!(t.term.grid().screen_lines(), 5);
         assert_eq!(t.term.grid().columns(), 10);
-        t.resize(20, 8);
+        t.resize(20, 8, 8, 16);
         assert_eq!(t.term.grid().screen_lines(), 8);
         assert_eq!(t.term.grid().columns(), 20);
     }
