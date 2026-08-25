@@ -1,6 +1,8 @@
 # Build artifacts
 /target
 /dist
+/releases/*.exe
+/releases/*.zip
 
 # Logs & debug
 *.log
