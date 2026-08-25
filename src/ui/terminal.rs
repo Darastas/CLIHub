@@ -690,6 +690,7 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.add_space(12.0); // 左外边距
         let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click_and_drag());
+        ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("term_bottom_y"), term_rect.max.y));
         
         let is_search_open = session.tabs.get(session.active_tab).map_or(false, |t| t.search_state.is_open);
         let find_input_id = ui.id().with("find_input");

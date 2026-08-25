@@ -276,12 +276,13 @@ pub fn show(
     ui.add_space(10.0); // Spacing before cards (收紧为 10px，形成有机整体)
 
     // ---- 会话卡片（点击选中，拖动排序）与 底部 Ctrl+C 退出通知 ----
-    let notif_h = 36.0;
-    let bottom_margin = 12.0;
-    let target_bottom_y = ui.max_rect().max.y - bottom_margin;
+    let card_h = 48.0; // 与工作区卡片 bg_rect 高度 100% 一致 (ROW_HEIGHT 56.0 - margin_y 8.0 = 48.0)
+    let margin_x = 12.0;
+    let target_bottom_y = ui.memory(|mem| mem.data.get_temp::<f32>(Id::new("term_bottom_y")))
+        .unwrap_or_else(|| ui.max_rect().max.y - 20.0);
     let notif_rect = Rect::from_min_max(
-        Pos2::new(ui.max_rect().min.x + 12.0, target_bottom_y - notif_h),
-        Pos2::new(ui.max_rect().max.x - 12.0, target_bottom_y),
+        Pos2::new(ui.max_rect().min.x + margin_x, target_bottom_y - card_h),
+        Pos2::new(ui.max_rect().max.x - margin_x, target_bottom_y),
     );
 
     let available_scroll_h = (notif_rect.min.y - 8.0 - ui.cursor().min.y).max(40.0);
@@ -314,7 +315,7 @@ pub fn show(
             }
         });
 
-    // 绘制底部区域：若触发 Ctrl+C 提示则以高级半透明磨砂玻璃卡片淡入呈现，下边缘与右侧终端框严格对齐，左右与卡片对齐
+    // 绘制底部区域：若触发 Ctrl+C 提示，以标准工作区卡片样式平滑渐显呈现，下边缘与右侧终端框绝对对齐
     let active_ctrl_c = sessions.get(selected).and_then(|s| s.tabs.get(s.active_tab)).and_then(|t| t.last_ctrl_c);
     let p = ui.painter();
 
@@ -322,43 +323,66 @@ pub fn show(
         let elapsed_ms = last.elapsed().as_millis();
         const CTRL_C_TIMEOUT_MS: u128 = 1800;
         if elapsed_ms <= CTRL_C_TIMEOUT_MS {
-            let fade_t = if elapsed_ms < 1000 {
+            // 前 150ms 快速平滑渐显，150~1000ms 稳定显示，后 800ms 优雅淡出
+            let fade_t = if elapsed_ms < 150 {
+                (elapsed_ms as f32 / 150.0).clamp(0.0, 1.0)
+            } else if elapsed_ms < 1000 {
                 1.0
             } else {
                 1.0 - ((elapsed_ms - 1000) as f32 / 800.0).clamp(0.0, 1.0)
             };
-            let alpha = (fade_t * 255.0) as u8;
 
-            // 1) 柔和下沉中性阴影
-            p.rect_filled(notif_rect.translate(vec2(0.0, 2.0)), 10.0, Color32::from_black_alpha((alpha as f32 * 0.40) as u8));
-            // 2) 高级磨砂玻璃卡片底色 (Acrylic Frosted Glass)
-            let notif_bg = if dark {
-                Color32::from_rgba_unmultiplied(28, 30, 38, (alpha as f32 * 0.92) as u8)
-            } else {
-                Color32::from_rgba_unmultiplied(248, 250, 255, (alpha as f32 * 0.95) as u8)
-            };
-            p.rect_filled(notif_rect, 10.0, notif_bg);
-            // 3) 发丝级极细微边框
-            let notif_stroke = if dark {
-                Color32::from_white_alpha((alpha as f32 * 0.18) as u8)
-            } else {
-                Color32::from_black_alpha((alpha as f32 * 0.14) as u8)
-            };
-            p.rect_stroke(notif_rect, 10.0, egui::Stroke::new(0.5, notif_stroke), egui::StrokeKind::Inside);
+            // 轻微的微位移入场过渡 (3px 向上微位移)
+            let slide_y = (1.0 - (elapsed_ms as f32 / 150.0).clamp(0.0, 1.0)) * 3.0;
+            let visual_notif_rect = notif_rect.translate(vec2(0.0, slide_y));
 
-            // 4) 提示文字（绝对水平垂直居中）
-            let text_color = if dark {
-                Color32::from_rgba_unmultiplied(240, 243, 250, alpha)
-            } else {
-                Color32::from_rgba_unmultiplied(30, 35, 45, alpha)
+            // 完全复用工作区卡片（高质感选中卡片同款底色与描边）
+            let custom_color = theme.sidebar_card_color.unwrap_or([0, 111, 238]);
+            let sel_color = if dark { 
+                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 40)
+            } else { 
+                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 24)
             };
+            let mut card_bg = sel_color;
+            card_bg[3] = (card_bg[3] as f32 * fade_t) as u8;
+
+            let shadow_color = if dark { Color32::from_black_alpha((100.0 * fade_t) as u8) } else { Color32::from_black_alpha((20.0 * fade_t) as u8) };
+            p.rect_filled(visual_notif_rect.translate(vec2(0.0, 2.0)), 12.0, shadow_color);
+            p.rect_filled(visual_notif_rect, 12.0, card_bg);
+
+            let stroke_color = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.5);
+            let mut stroke_c = stroke_color;
+            stroke_c[3] = (stroke_c[3] as f32 * fade_t) as u8;
+            p.rect_stroke(visual_notif_rect, 12.0, Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
+
+            let text_start_x = visual_notif_rect.min.x + 12.0;
+            let mut name_c = if dark { Color32::WHITE } else { Color32::BLACK };
+            name_c[3] = (name_c[3] as f32 * fade_t) as u8;
+            let mut cwd_c = if dark { Color32::from_white_alpha(160) } else { Color32::from_black_alpha(160) };
+            cwd_c[3] = (cwd_c[3] as f32 * fade_t) as u8;
+
+            // 第一行标题：Ctrl+C
             p.text(
-                notif_rect.center(),
-                Align2::CENTER_CENTER,
-                "再按一次 Ctrl+C 终止/退出",
-                FontId::new(12.0, egui::FontFamily::Proportional),
-                text_color,
+                Pos2::new(text_start_x, visual_notif_rect.min.y + 8.0),
+                Align2::LEFT_TOP,
+                "Ctrl + C",
+                FontId::new(14.0, egui::FontFamily::Monospace),
+                name_c,
             );
+            // 第二行副标题：再按一次终止后台 / 退出
+            p.text(
+                Pos2::new(text_start_x, visual_notif_rect.min.y + 27.0),
+                Align2::LEFT_TOP,
+                "再按一次终止后台 / 退出",
+                FontId::new(11.5, egui::FontFamily::Monospace),
+                cwd_c,
+            );
+
+            // 右侧状态圆点 (警示红/橙色)
+            let dot_center = Pos2::new(visual_notif_rect.right() - 20.0, visual_notif_rect.center().y);
+            let mut dot_c = Color32::from_rgb(231, 76, 60);
+            dot_c[3] = (255.0 * fade_t) as u8;
+            p.circle_filled(dot_center, 4.0, dot_c);
 
             ui.ctx().request_repaint(); // 维持平滑淡出过渡
         }
