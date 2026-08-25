@@ -327,7 +327,7 @@ pub fn show(
                 let expand_factor = raw_expand_t * raw_expand_t * (3.0 - 2.0 * raw_expand_t);
 
                 let collapsed_w = 34.0;
-                let expanded_w = 327.0;
+                let expanded_w = 340.0;
                 let current_w = egui::lerp(collapsed_w..=expanded_w, expand_factor);
                 let (search_rect, search_resp) = ui.allocate_exact_size(vec2(current_w, 34.0), Sense::click());
 
@@ -413,27 +413,26 @@ pub fn show(
                         let mut go_next = false;
                         let mut close_bar = false;
 
-                        let capsule_w = egui::lerp(20.0..=120.0, inner_alpha);
-                        let (capsule_rect, _) = child_ui.allocate_exact_size(vec2(capsule_w, 24.0), Sense::hover());
+                        let input_w = egui::lerp(20.0..=135.0, inner_alpha);
+                        let (input_rect, _) = child_ui.allocate_exact_size(vec2(input_w, 24.0), Sense::hover());
 
                         let edit_id = child_ui.id().with("find_input");
-                        let edit_rect = Rect::from_center_size(
-                            capsule_rect.center(),
-                            vec2((capsule_w - 12.0).max(10.0), 18.0),
-                        );
                         let mut input_ui = child_ui.new_child(
                             egui::UiBuilder::new()
-                                .max_rect(edit_rect)
+                                .max_rect(input_rect)
                                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
                         );
 
+                        let text_color = if dark { Color32::WHITE } else { Color32::BLACK };
                         let edit_resp = input_ui.add(
                             egui::TextEdit::singleline(&mut tab.search_state.query)
                                 .id(edit_id)
-                                .desired_width((capsule_w - 12.0).max(10.0))
-                                .font(FontId::proportional(12.5))
+                                .desired_width(input_w)
+                                .font(FontId::proportional(13.0))
+                                .text_color(text_color)
                                 .hint_text("Find...")
-                                .margin(vec2(0.0, 0.0)),
+                                .frame(egui::Frame::NONE)
+                                .margin(vec2(2.0, 2.0)),
                         );
 
                         if tab.search_state.request_focus {
