@@ -10,10 +10,12 @@ path = "src/main.rs"
 [dependencies]
 alacritty_terminal = "0.26.0"
 anyhow = "1.0.104"
+arboard = "3.4"
 crossbeam-channel = "0.5.16"
 directories = "6.0.0"
 eframe = "0.35.0"
 egui = "0.35.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 portable-pty = "0.9.0"
 notify-rust = "4"
 rfd = "0.17.2"

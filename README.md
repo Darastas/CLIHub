@@ -50,6 +50,10 @@ CLIHub solves this by offering:
   - Pixel-perfect native Windows 10/11 title bar caption buttons (full-bleed hover, official red close hover, and 1.0px hairline vector strokes).
   - Independent color system with classic schemes: Campbell, One Half, Solarized, Tango, and more.
   - **OS-level smart theme sync**: Adapts Light/Dark mode across the entire UI, injects POSIX-standard `TERM`, `LANG`, `COLORFGBG` variables into PTY, and responds to `OSC 11` color queries.
+- 📸 **AI Multimodal Image Input & File Drag-and-Drop**
+  - **Right-Click Smart Screenshot Pasting**: Right-click to paste; automatically detects clipboard bitmap images / PNG / files, encodes them as temporary PNG files, and injects safe quoted paths into the terminal for seamless integration with Claude Code, OpenCode, Aider, etc.
+  - **Fluid File Drag-and-Drop**: Drag images or files directly into any terminal tab without needing prior window focus, with an elegant dark translucent hover overlay and centered frosted glass capsule.
+  - **Auto Cache Cleanup**: Silently purges temporary images older than 24 hours on application startup to ensure zero disk bloat.
 - 🛡️ **Double-Press Ctrl+C Protection** — Sidebar bottom neutral micro-card with exact terminal bottom alignment, 150ms smooth fade-in animation, and 1.8s tolerance window.
 - 💾 **Instant Persistence** — All workspaces, color preferences, and theme modes are saved in real-time and restored on next launch.
 
@@ -95,6 +99,10 @@ cargo build --release  # Release build
 ### Releases & Changelog
 
 #### v1.2.0
+- **AI Multimodal Image Input & File Drag-and-Drop**:
+  - Support instant image pasting via `Ctrl+V`, `Ctrl+Shift+V`, or secondary click; clipboard bitmaps are automatically saved as temporary PNG files and injected as safe quoted file paths for multi-modal AI CLI tools (Claude Code, OpenCode, Aider, etc.).
+  - Added drag-and-drop file support with smooth semi-transparent hover feedback and automatic absolute path insertion into active terminal PTYs.
+  - Automatic background garbage collection for temporary images older than 24 hours on application startup.
 - **Windows Process Stability & Tree Guard (Win32 Engineering)**: Integrated Win32 Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) to automatically terminate full process trees (preventing orphan `node.exe`, `cargo.exe`, `python.exe` processes) and Win32 `SetThreadExecutionState` Sleep Inhibitor for background AI tasks.
 - **Zero-Latency PTY Performance (Benchmarked against Windows Terminal)**: Direct UI event loop wake-up upon incoming PTY bytes (`<1ms` latency), eliminating immediate-mode UI sleep lag. Initial viewport geometry matching eliminates Oh-My-Posh / PowerShell / OpenCode2 double-render resize storms.
 - **Windows Terminal Protocol Injections**: Injects `WT_SESSION` GUID and UTF-8 console code page (`CP 65001`), activating full-speed Virtual Terminal (VT) prediction and true-color rendering.

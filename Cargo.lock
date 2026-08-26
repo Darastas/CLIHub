@@ -165,10 +165,12 @@ version = "1.2.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "arboard",
  "crossbeam-channel",
  "directories",
  "eframe",
  "egui",
+ "image",
  "notify-rust",
  "portable-pty",
  "rfd",

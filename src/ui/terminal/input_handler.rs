@@ -7,15 +7,13 @@ use super::clipboard::{get_clipboard_text, set_clipboard_text};
 
 /// 处理按键事件并写回 PTY
 pub fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
-    if !ui.input(|i| i.focused) {
-        return None;
-    }
     let find_input_id = ui.id().with("find_input");
     if ui.memory(|m| m.has_focus(find_input_id)) {
         return None; // 搜索框处于输入状态，绝对不向 PTY 终端转发按键
     }
-    let events = ui.input(|i| i.events.clone());
+
     let mut out: Vec<u8> = Vec::new();
+    let events = ui.input(|i| i.events.clone());
 
     for ev in events {
         match ev {

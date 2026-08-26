@@ -56,6 +56,9 @@ impl HubApp {
         cc.egui_ctx.set_visuals(app_visuals(config.theme.dark));
         setup_fonts(&cc.egui_ctx);
 
+        // 自动异步清理 24 小时之前的过期临时图片缓存
+        terminal::cleanup_old_temp_images();
+
         let initial_theme = config.theme.clone();
         let initial_notification = config.notification.clone();
         let sessions: Vec<Session> = config

@@ -4,7 +4,8 @@ pub mod clipboard;
 pub mod grid_render;
 pub mod input_handler;
 
-pub use clipboard::{get_clipboard_text, set_clipboard_text};
+#[allow(unused_imports)]
+pub use clipboard::{cleanup_old_temp_images, get_clipboard_text, set_clipboard_text, smart_get_clipboard_content};
 #[allow(unused_imports)]
 pub use grid_render::{is_graphic_char, luminance, paint_grid, resolve_cell, resolve_color, rgb_to_color32};
 pub use input_handler::{forward_keys, handle_scroll};
@@ -789,7 +790,7 @@ pub fn show(
             }
         }
 
-        // 经典终端右键交互
+        // 经典终端右键交互（支持智能图文粘贴）
         if resp.secondary_clicked() {
             if let Some(t) = &mut tab.terminal {
                 if t.selection.is_some() {
@@ -800,11 +801,30 @@ pub fn show(
                         }
                     }
                     t.selection = None;
-                } else if let Some(clip) = get_clipboard_text() {
+                } else if let Some(clip) = smart_get_clipboard_content() {
                     if let Some(pty) = &mut tab.pty {
                         let _ = pty.write(clip.as_bytes());
                     }
                 }
+            }
+        }
+
+        // 文件拖拽注入（支持图片及任意文件拖入，无论是否预先聚焦窗口均立即生效并激活焦点）
+        let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
+        if !dropped_files.is_empty() {
+            let mut paths_text = String::new();
+            for file in dropped_files {
+                if let Some(path) = file.path {
+                    let path_str = path.to_string_lossy();
+                    paths_text.push_str(&format!("\"{path_str}\" "));
+                }
+            }
+            if !paths_text.is_empty() {
+                if let Some(pty) = &mut tab.pty {
+                    let _ = pty.write(paths_text.as_bytes());
+                }
+                resp.request_focus();
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
             }
         }
 
@@ -815,8 +835,9 @@ pub fn show(
             p.resize(cols, rows);
         }
 
-        // 仅在窗口具有 OS 焦点且终端处于激活输入状态时转发键盘事件
-        if input_enabled && focused {
+        // 仅在窗口具有 OS 焦点且没有在搜索框输入时转发键盘事件
+        let can_receive_input = input_enabled && window_focused && !find_input_focused;
+        if can_receive_input {
             if let Some(err) = forward_keys(ui, tab) {
                 session.error = Some(err);
             }
@@ -931,6 +952,45 @@ pub fn show(
                     egui::Stroke::new(1.5, Color32::from_rgb(120, 180, 255)),
                 );
             }
+        }
+
+        // 拖拽文件悬停视觉提示（优雅暗色微透渐变与居中磨砂胶囊）
+        let is_hovering_file = ui.input(|i| !i.raw.hovered_files.is_empty());
+        if is_hovering_file {
+            let painter = ui.painter();
+            // 柔和暗色微透整体遮罩
+            painter.rect_filled(term_rect, 10.0, Color32::from_rgba_unmultiplied(8, 12, 18, 135));
+            // 外围极细发丝微光发丝描边
+            painter.rect_stroke(
+                term_rect.shrink(1.0),
+                10.0,
+                egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(100, 160, 240, 50)),
+                egui::StrokeKind::Inside,
+            );
+
+            // 居中高级悬浮磨砂玻璃胶囊
+            let pill_w = 220.0;
+            let pill_h = 42.0;
+            let center = term_rect.center();
+            let pill_rect = Rect::from_center_size(center, vec2(pill_w, pill_h));
+
+            // 胶囊暗黑微透底色与细致高光边框
+            painter.rect_filled(pill_rect, 10.0, Color32::from_rgba_unmultiplied(22, 26, 35, 235));
+            painter.rect_stroke(
+                pill_rect,
+                10.0,
+                egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 32)),
+                egui::StrokeKind::Inside,
+            );
+
+            let text_font = FontId::new(13.5, egui::FontFamily::Proportional);
+            painter.text(
+                center,
+                Align2::CENTER_CENTER,
+                "📥  释放以插入文件路径",
+                text_font,
+                Color32::from_rgb(220, 228, 240),
+            );
         }
     });
 
