@@ -177,6 +177,27 @@ pub fn forward_keys(ui: &mut Ui, tab: &mut TerminalInstance) -> Option<String> {
                     continue;
                 }
 
+                // 暂存区生命周期与提交控制：
+                // 1) 常规 Enter 提交：若暂存区有图片，先注入路径并在独立时钟周期内提交回车，实现单次回车即发即走
+                let is_regular_enter = key == egui::Key::Enter && !modifiers.shift && !modifiers.alt;
+                if is_regular_enter && !tab.image_preview.attachments.is_empty() {
+                    let inject_text = tab.image_preview.format_injection_text();
+                    if let Some(pty) = &mut tab.pty {
+                        if !out.is_empty() {
+                            let _ = pty.write(&out);
+                            out.clear();
+                        }
+                        pty.write_then_submit_delayed(inject_text.as_bytes(), 100);
+                    }
+                    tab.image_preview.clear();
+                    continue;
+                }
+
+                // 2) 取消当前命令行：Ctrl+C / Ctrl+U 清空暂存区
+                if is_ctrl_or_cmd && (key == egui::Key::U || key == egui::Key::C) {
+                    tab.image_preview.clear();
+                }
+
                 if let Some(bytes) = map_key(key, &modifiers) {
                     out.extend_from_slice(&bytes);
                 }

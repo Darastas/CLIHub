@@ -14,7 +14,7 @@ use crate::backend::process_guard::ProcessJobGuard;
 /// 一个被 PTY 接管的子进程及其读写端。
 pub struct PtyHandle {
     pub master: Box<dyn MasterPty + Send>,
-    pub writer: Box<dyn Write + Send>,
+    pub writer: Arc<std::sync::Mutex<Box<dyn Write + Send>>>,
     pub child: Box<dyn Child + Send + Sync>,
     /// 进程存活标志；reader 线程在 EOF/出错时置为 false
     pub alive: Arc<AtomicBool>,
@@ -152,7 +152,8 @@ impl PtyHandle {
 
         let master = pair.master;
         let mut reader = master.try_clone_reader().context("克隆 reader 失败")?;
-        let writer = master.take_writer().context("获取 writer 失败")?;
+        let raw_writer = master.take_writer().context("获取 writer 失败")?;
+        let writer = Arc::new(std::sync::Mutex::new(raw_writer));
 
         let (tx, rx) = unbounded();
         let alive = Arc::new(AtomicBool::new(true));
@@ -198,8 +199,25 @@ impl PtyHandle {
 
     /// 将键盘输入写回子进程的 stdin。
     pub fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
-        self.writer.write_all(data)?;
-        self.writer.flush()
+        let mut w = self.writer.lock().map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "writer mutex poisoned"))?;
+        w.write_all(data)?;
+        w.flush()
+    }
+
+    /// 先向 stdin 写入文本数据，随后在微延迟后发送独立回车指令（解决 CLI 批量粘贴防护机制导致的单次回车吞码问题）
+    pub fn write_then_submit_delayed(&mut self, text: &[u8], delay_ms: u64) {
+        if let Ok(mut w) = self.writer.lock() {
+            let _ = w.write_all(text);
+            let _ = w.flush();
+        }
+        let writer_clone = self.writer.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            if let Ok(mut w) = writer_clone.lock() {
+                let _ = w.write_all(b"\r");
+                let _ = w.flush();
+            }
+        });
     }
 
     /// 调整窗口行列数；尺寸未变化时跳过，避免每帧重复 resize

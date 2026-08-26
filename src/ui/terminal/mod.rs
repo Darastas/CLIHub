@@ -15,6 +15,7 @@ use alacritty_terminal::vte::ansi::Rgb;
 use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Sense, Ui, vec2};
 
 use crate::state::Session;
+use crate::ui::image_preview::{is_image_path, show_attachment_pill, show_lightbox_modal};
 
 /// 标签栏/终端区触发的动作，由 App 层执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -802,30 +803,39 @@ pub fn show(
                     }
                     t.selection = None;
                 } else if let Some(clip) = smart_get_clipboard_content() {
-                    if let Some(pty) = &mut tab.pty {
+                    let trimmed_path = std::path::PathBuf::from(clip.trim().trim_matches('"'));
+                    if is_image_path(&trimmed_path) && trimmed_path.exists() {
+                        // 图片内容加入待发送暂存区，不污染终端输入行
+                        tab.image_preview.add_attachment(trimmed_path);
+                    } else if let Some(pty) = &mut tab.pty {
                         let _ = pty.write(clip.as_bytes());
                     }
                 }
             }
         }
 
-        // 文件拖拽注入（支持图片及任意文件拖入，无论是否预先聚焦窗口均立即生效并激活焦点）
+        // 文件拖拽注入（图片文件进入暂存区预览，非图片文件直接注入路径）
         let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
         if !dropped_files.is_empty() {
             let mut paths_text = String::new();
             for file in dropped_files {
                 if let Some(path) = file.path {
-                    let path_str = path.to_string_lossy();
-                    paths_text.push_str(&format!("\"{path_str}\" "));
+                    if is_image_path(&path) {
+                        // 图片文件加入暂存区，不污染终端输入行
+                        tab.image_preview.add_attachment(path);
+                    } else {
+                        let path_str = path.to_string_lossy();
+                        paths_text.push_str(&format!("\"{path_str}\" "));
+                    }
                 }
             }
             if !paths_text.is_empty() {
                 if let Some(pty) = &mut tab.pty {
                     let _ = pty.write(paths_text.as_bytes());
                 }
-                resp.request_focus();
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
             }
+            resp.request_focus();
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
         }
 
         if let Some(t) = &mut tab.terminal {
@@ -992,6 +1002,12 @@ pub fn show(
                 Color32::from_rgb(220, 228, 240),
             );
         }
+
+        // 绘制右下角多模态图片附件悬浮暂存区胶囊
+        show_attachment_pill(ui, &mut tab.image_preview, term_rect, theme);
+
+        // 绘制全屏 Lightbox 模态大图查看器
+        show_lightbox_modal(ui, &mut tab.image_preview);
     });
 
     action

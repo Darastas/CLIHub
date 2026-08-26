@@ -11,6 +11,7 @@ use crossbeam_channel::Receiver;
 
 use crate::backend::pty::PtyHandle;
 use crate::backend::terminal::{SearchMatch, Terminal};
+use crate::ui::image_preview::ImagePreviewState;
 
 /// 终端搜索栏状态。
 #[derive(Debug, Clone, Default)]
@@ -87,6 +88,8 @@ pub struct TerminalInstance {
     pub search_state: SearchState,
     /// 最近一次按下 Ctrl+C 的时间戳（用于短时间双击防误触退出）
     pub last_ctrl_c: Option<std::time::Instant>,
+    /// 多模态图片附件暂存区状态
+    pub image_preview: ImagePreviewState,
 }
 
 impl TerminalInstance {
@@ -103,6 +106,7 @@ impl TerminalInstance {
             scroll_accum: 0.0,
             search_state: SearchState::default(),
             last_ctrl_c: None,
+            image_preview: ImagePreviewState::default(),
         }
     }
 
