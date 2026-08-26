@@ -1,31 +1,38 @@
-# CLIHub v1.2.0 Release Notes
+# CLIHub v1.3.0 Release Notes
 
 ## 新增功能与改进
 
-- **Windows 进程级稳定性增强 (Win32 Engineering)**：
-  - 基于 Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) 实现 `ProcessJobGuard`，在标签页关闭或应用退出时，由 Windows 内核原子回收整个子进程树，彻底杜绝 `node.exe`、`cargo.exe`、`python.exe` 孤儿后台进程驻留。
-  - 基于 Win32 `SetThreadExecutionState` 实现 `SleepInhibitor`，长任务与 AI 代理会话运行时自动阻止系统休眠，空闲时恢复节能。
-- **零延迟性能飞跃 (对标 Windows Terminal)**：
-  - PTY 读线程接入 UI 即时事件唤醒机制（`ctx.request_repaint()`），彻底消除即时模式 UI 处于休眠等待时的 50~500ms 延迟，实现 `<1ms` 极速流式吞吐。
-  - 启动视口尺寸精准锁定，消除 PowerShell / Oh-My-Posh / OpenCode2 启动时因尺寸突变触发的二次重绘与重复执行风暴，启动速度提升 50%+。
-  - 注入 Windows Terminal 原生兼容协议（`WT_SESSION` GUID、`TERM_PROGRAM="CLIHub"`、`COLORTERM="truecolor"`）与 UTF-8 控制台代码页（`CP 65001`），自动启用全速 VT 预测着色引擎。
-  - DSR / CPR 光标位置查询同帧零延迟写回应答（0ms Roundtrip）。
-- **终端画布几何优化与全景居中**：
-  - 动态平分整行像素余数，保证终端内容区上下左右 100% 绝对等宽居中对称。
-  - 接入动态字形宽高（`cell_w`/`cell_h`）记录与 `XTWINOPS` 视口查询响应，彻底消除自绘 TUI（OpenCode、Mimo 等）的启动视口抖动。
-- **搜索栏无边框流式设计**：
-  - 文本框改用无边框流式设计（`Frame::NONE`），去除狭窄多余的内层小白框，拓展输入宽度至 135px 并修正字体基线对齐。
-- **大型源码架构模块化解耦**：
-  - 将原 2000 行单文件拆解为独立的 `ui/terminal/`（`grid_render`、`input_handler`、`clipboard`、`mod`）与 `fonts.rs` 模块。
+- 📸 **多模态附件暂存区 (Multimodal Staging Area)**：
+  - 支持截图智能粘贴与任意外部图片文件拖拽注入，自动暂存为缩略图胶囊卡片；
+  - 接入基于文件头特征魔数（Magic Number）的深度嗅探与全格式解码（PNG / JPEG / WebP / BMP / GIF / ICO / TIFF），即便无扩展名也能 100% 准确识别与渲染；
+  - **一键回车智能联动**：在暂存区有待发图片且终端正在输入文本时，按下回车键自动将图片临时转存路径与终端正在输入的文本一同注入并触发一次发送，无需按两次回车；
+  - 支持单张或批量图片全屏模态 Lightbox 放大预览与一键删除。
+- ⚙️ **附件暂存区 3 种布局自由切换**：
+  - **右上角 HUD (`TopRight`)**：终端右上角半透明微缩挂件，视线自然不遮挡正文（默认推荐）；
+  - **顶部横向槽 (`TopBanner`)**：终端顶部全宽横向卡槽，支持多图横向平铺展示；
+  - **右下角悬浮 (`BottomRight`)**：右下角经典浮动胶囊。
+- 🎨 **偏好设置页面纯正卡片重构**：
+  - 100% 照搬 Workspaces 侧边栏卡片代码规范，纯净半透明圆角填充，彻底去除冗余发光描边与指示灯；
+  - 采用大尺寸卡片同比例双层立体漫反射投影（`2.5px` + `1.2px`），告别扁平感；
+  - 配色方案重构为定制卡片式选择器（`Campbell ▼`）与暗色圆角浮层选单；
+  - 独立精致外框拾色卡片，上下两排网格像素级垂直无缝对齐。
+- 📝 **新建与编辑会话模态窗【阴阳刻】虚实光影升级**：
+  - **阴刻凹槽输入框 (Debossed Sunken Trench)**：顶部背光内阴影（Top Inset Shadow）呈现向内深陷的下坠深度，底部槽口迎光发丝微亮边（Bottom Lip Highlight），内嵌无边框流式排版；
+  - **阳刻卡片按键 (Raised Card Buttons)**：双层立体落差投影 + 用户主题色半透明强调，与深凹输入框形成鲜明虚实对比。
+- 💎 **全新纯透明底与大幅饱满应用图标**：
+  - 彻底去除原有黑色方框底色，转换为平滑 Alpha 透明通道并消除边缘黑边；
+  - 主体图形等比大幅放大（从 154px 放大至 238px，占 256x256 画布 93%），饱满醒目；
+  - 重构生成包含 32 位 BGRA DIB 矩阵与 1-bit AND 透明掩码的标准 Windows 多分辨率 ICO（256/128/64/48/32/24/16），彻底修复 Windows 任务栏与资源管理器黑底问题。
+- 🧩 **高内聚低耦合模块化架构**：
+  - 严格遵守单个文件 `< 500` 行规范，模块化抽离 `src/ui/settings.rs`（374 行）、`src/ui/session_modal.rs`（286 行）与 `src/ui/image_preview/`。
 
 ## 预编译包校验码 (SHA-256)
 
 | 文件名 | 架构 | SHA-256 校验码 |
 |:---|:---|:---|
-| clihub-v1.2.0-windows-x64.exe | Windows x64 | 19C2B8B1D818A2C53D04A71641141048ABAE27C46E1F260076E1CEA347F11B9F |
-| clihub-v1.2.0-windows-x86.exe | Windows x86 (32-bit) | 739914D7ADDE869CED917EFA41B14F38ACA2EB4BBBC79513F54F0E1786179292 |
-| clihub-v1.2.0-windows-arm64.exe | Windows ARM64 | F13E6FF2B173FC7B9AE6CD42E1F3A3129687D62C7464E5384DC651586807AE02 |
-| clihub-v1.2.0-windows-x64.zip | Windows x64 Zip | 58A9495490473912C3AE4BAB93DF3CEFA5AC1C3998F978617FB183F16C7C0A73 |
-| clihub-v1.2.0-windows-x86.zip | Windows x86 Zip | 5F89B4D7189F0333C10D590C9F668D4B4A970D74942666D3C34D3B0904A357FD |
-| clihub-v1.2.0-windows-arm64.zip | Windows ARM64 Zip | 7C4F873C4684E8295972F61C5E17F35D15AE5A8E3631C6A117D04E6367B5C9E0 |
-
+| clihub-v1.3.0-windows-x64.exe | Windows x64 | 030A0FECACE6E2035A23DECFD06FB9ACC537BC6C598DD59512F8AB4EC066381D |
+| clihub-v1.3.0-windows-x64.zip | Windows x64 Zip | EAC736A30678FC6BBDDB7C1F2C9C1088442C2312DBE133785CD2FFCE51CEA641 |
+| clihub-v1.3.0-windows-x86.exe | Windows x86 (32-bit) | 5CAFC6A1582628DA33B84A5DE025E71107BFB3011FD10B496317A1715F517771 |
+| clihub-v1.3.0-windows-x86.zip | Windows x86 (32-bit) Zip | CF1ECBF5920EFB0339ED40E4DCFFDE0EBC3CFE022D62CDE5BE15C3F8F210D65B |
+| clihub-v1.3.0-windows-arm64.exe | Windows ARM64 | F809673820FF1ABAF8B7BF1E9F125182907F47A0D799CFB6E59188E6E8774F76 |
+| clihub-v1.3.0-windows-arm64.zip | Windows ARM64 Zip | 38AA299892E1DA5F36CB36F3CA0BFB7BECA5405CF0CF92501438DE3A409747AD |

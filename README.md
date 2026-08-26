@@ -50,10 +50,16 @@ CLIHub solves this by offering:
   - Pixel-perfect native Windows 10/11 title bar caption buttons (full-bleed hover, official red close hover, and 1.0px hairline vector strokes).
   - Independent color system with classic schemes: Campbell, One Half, Solarized, Tango, and more.
   - **OS-level smart theme sync**: Adapts Light/Dark mode across the entire UI, injects POSIX-standard `TERM`, `LANG`, `COLORFGBG` variables into PTY, and responds to `OSC 11` color queries.
-- 📸 **AI Multimodal Image Input & File Drag-and-Drop**
-  - **Right-Click Smart Screenshot Pasting**: Right-click to paste; automatically detects clipboard bitmap images / PNG / files, encodes them as temporary PNG files, and injects safe quoted paths into the terminal for seamless integration with Claude Code, OpenCode, Aider, etc.
-  - **Fluid File Drag-and-Drop**: Drag images or files directly into any terminal tab without needing prior window focus, with an elegant dark translucent hover overlay and centered frosted glass capsule.
+- 📸 **AI Multimodal Attachment Staging & Magic-Byte Decoding**
+  - **Smart Screenshot Pasting & File Drop Staging**: Seamlessly paste screenshots (`Ctrl+V` / right-click) or drag external image files into any terminal; images are automatically stored in an interactive floating attachment staging capsule.
+  - **Deep Magic-Byte Format Decoding**: Full header magic-number sniffing supporting PNG, JPEG, WebP, BMP, GIF, ICO, and TIFF even without file extensions.
+  - **One-Key Enter Direct Submission**: Automatically bundles staged image filepaths with ongoing command text and dispatches directly on a single Enter stroke (no duplicate Enter required).
+  - **3 Attachment Staging Positions**: Switch between Top-Right HUD (`TopRight`), Full-Width Top Banner (`TopBanner`), and Bottom-Right Classic (`BottomRight`) in Settings.
+  - **Full-Screen Modal Lightbox**: Click any thumbnail to inspect high-resolution images in a centered dark backdrop lightbox.
   - **Auto Cache Cleanup**: Silently purges temporary images older than 24 hours on application startup to ensure zero disk bloat.
+- ⚙️ **Workspaces Card-Style Settings Modal**: 1:1 rebuilt settings panel matching Workspaces sidebar card aesthetics, dual-layer diffuse shadows, borderless fills, card-style dropdown menu, and aligned swatches.
+- 📝 **Session Modal with Debossed Intaglio Inputs & Raised Buttons**: Sunken trench text fields with top inset shadow and bottom lip highlight paired with raised themed card buttons.
+- 💎 **Pure Transparent High-Res Application Icon**: Rebuilt 32-bit RGBA icons with 1-bit AND transparency masks and scaled up geometry (93% canvas fill) for Windows Taskbar and Explorer.
 - 🛡️ **Double-Press Ctrl+C Protection** — Sidebar bottom neutral micro-card with exact terminal bottom alignment, 150ms smooth fade-in animation, and 1.8s tolerance window.
 - 💾 **Instant Persistence** — All workspaces, color preferences, and theme modes are saved in real-time and restored on next launch.
 
@@ -74,6 +80,7 @@ CLIHub solves this by offering:
 - Click **Settings** next to the CLIHub logo.
 - Switch between **Light / Dark** global themes.
 - Choose a **Terminal Color Scheme** or customize Background, Foreground, and Sidebar Card Color via the color pickers.
+- Choose your preferred **Attachment Staging Position** (Top-Right HUD / Top Banner / Bottom-Right).
 
 ### Tech Stack
 
@@ -83,7 +90,8 @@ CLIHub solves this by offering:
 | Terminal Engine | `alacritty_terminal` 0.26 + `vte` parser |
 | PTY Backend | `portable-pty` 0.9 (Windows ConPTY / Unix) |
 | Concurrency | `crossbeam-channel` (lock-free data forwarding) |
-| OS Integration | Windows `GetUserDefaultLocaleName` API for locale injection |
+| Image Decoding | `image` 0.25 (PNG, JPEG, WebP, BMP, GIF, ICO, TIFF) |
+| OS Integration | Win32 Job Objects, `SetThreadExecutionState`, `GetUserDefaultLocaleName` |
 
 ### Build & Run
 
@@ -98,7 +106,16 @@ cargo build --release  # Release build
 
 ### Releases & Changelog
 
-#### v1.2.0
+#### v1.3.0
+- **AI Multimodal Attachment Staging & Intelligent Dispatch**:
+  - Interactive attachment staging area with thumbnail capsules, full-screen lightbox preview, and seamless one-key Enter submission for AI CLI prompts.
+  - Deep file-header magic-number sniffing supporting PNG, JPEG, WebP, BMP, GIF, ICO, and TIFF.
+  - 3 customizable attachment positions (`TopRight HUD`, `TopBanner`, and `BottomRight`).
+- **Card-Style Settings Interface Refactoring**: 1:1 rebuilt preference modal with Workspaces card language, dual-layer diffuse shadows, borderless selections, custom card dropdowns, and pixel-aligned color pickers.
+- **Session Management Modal (Debossed & Raised Contrast)**: Sunken trench input fields featuring top inset shadows and bottom lip highlights paired with raised themed card buttons.
+- **Pure Transparent High-Res App Icon**: Converted black icon backgrounds to 32-bit RGBA with 1-bit AND masks and 93% canvas fill, resolving Windows Taskbar and Explorer display issues.
+- **Modular Codebase (<500 Lines per File)**: Decoupled modal views into standalone modules (`ui/settings.rs`, `ui/session_modal.rs`, `ui/image_preview/`).
+- **Multi-Architecture Release Packages**: Standalone native precompiled binaries and zip archives for Windows x64, x86 (32-bit), and ARM64.
 - **AI Multimodal Image Input & File Drag-and-Drop**:
   - Support instant image pasting via `Ctrl+V`, `Ctrl+Shift+V`, or secondary click; clipboard bitmaps are automatically saved as temporary PNG files and injected as safe quoted file paths for multi-modal AI CLI tools (Claude Code, OpenCode, Aider, etc.).
   - Added drag-and-drop file support with smooth semi-transparent hover feedback and automatic absolute path insertion into active terminal PTYs.
