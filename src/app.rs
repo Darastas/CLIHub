@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use egui::{Color32, Context, RichText};
+use egui::Context;
 
 use crate::backend::io_loop;
 use crate::backend::notification::{NotificationAction, NotificationService};
@@ -560,7 +560,7 @@ impl HubApp {
         }
         // 设置窗口
         if self.show_settings {
-            self.settings_window(ui);
+            self.settings_dialog(ui);
         }
 
         match action {
@@ -607,191 +607,14 @@ impl HubApp {
         theme
     }
 
-    /// 设置窗口：主题预设 + 自定义背景/前景色。
-    fn settings_window(&mut self, ui: &mut egui::Ui) {
-        let mut changed = false;
-        let mut close = false;
-
-        let screen_rect = ui.ctx().input(|i| i.raw.screen_rect).unwrap_or_else(|| ui.max_rect());
-        ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(150));
-
-        egui::Area::new(egui::Id::new("settings_modal"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ui.ctx(), |ui: &mut egui::Ui| {
-                let dark = ui.visuals().dark_mode;
-                let modal_bg = if dark { Color32::from_rgb(35, 35, 35) } else { Color32::from_rgb(250, 250, 250) };
-                let stroke = if dark { egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60)) } else { egui::Stroke::new(1.0, Color32::from_rgb(220, 220, 220)) };
-
-                let frame = egui::Frame::NONE
-                    .fill(modal_bg)
-                    .stroke(stroke)
-                    .corner_radius(16)
-                    .inner_margin(32.0)
-                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
-                
-                frame.show(ui, |ui: &mut egui::Ui| {
-                    let visuals = &mut ui.style_mut().visuals;
-                    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
-                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
-                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
-                    visuals.selection.stroke = egui::Stroke::new(1.5, Color32::from_rgb(0, 111, 238));
-
-                    ui.set_width(320.0);
-                        
-                    // Header with close button
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.label(RichText::new("Settings").size(18.0).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
-                            let color = if resp.hovered() { Color32::from_rgb(220, 60, 50) } else { if dark { Color32::from_gray(140) } else { Color32::from_gray(120) } };
-                            
-                            let c = rect.center();
-                            let s = 4.5;
-                            ui.painter().line_segment([c - egui::vec2(s, s), c + egui::vec2(s, s)], egui::Stroke::new(1.5, color));
-                            ui.painter().line_segment([c - egui::vec2(s, -s), c + egui::vec2(s, -s)], egui::Stroke::new(1.5, color));
-                            
-                            if resp.clicked() {
-                                close = true;
-                            }
-                        });
-                    });
-                    ui.add_space(16.0);
-
-                    ui.label(RichText::new("App Theme").size(12.0));
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        // Restore bg_stroke for radio buttons
-                        let prev_stroke = ui.visuals().widgets.inactive.bg_stroke;
-                        ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(1.5, if dark { Color32::from_gray(100) } else { Color32::from_gray(160) });
-                        
-                        if ui.radio(!self.settings_draft.dark, "Light").clicked() {
-                            self.settings_draft.dark = false;
-                            self.settings_draft.color_scheme = "One Half Light".to_string();
-                            self.settings_draft.background = None;
-                            self.settings_draft.foreground = None;
-                            changed = true;
-                        }
-                        if ui.radio(self.settings_draft.dark, "Dark").clicked() {
-                            self.settings_draft.dark = true;
-                            self.settings_draft.color_scheme = "Campbell".to_string();
-                            self.settings_draft.background = None;
-                            self.settings_draft.foreground = None;
-                            changed = true;
-                        }
-                        
-                        ui.visuals_mut().widgets.inactive.bg_stroke = prev_stroke;
-                    });
-                    ui.add_space(8.0);
-                    
-                    ui.label(RichText::new("Terminal Color Scheme").size(12.0));
-                    egui::ComboBox::from_id_salt("color_scheme_combo")
-                        .selected_text(&self.settings_draft.color_scheme)
-                        .show_ui(ui, |ui: &mut egui::Ui| {
-                            ui.visuals_mut().selection.bg_fill = if dark {
-                                Color32::from_white_alpha(30)
-                            } else {
-                                Color32::from_black_alpha(20)
-                            };
-                            for scheme in &["Campbell", "One Half Light", "One Half Dark", "Solarized Dark", "Tango Dark", "Readable Solar Light"] {
-                                if ui.selectable_value(&mut self.settings_draft.color_scheme, scheme.to_string(), *scheme).changed() {
-                                    self.settings_draft.background = None;
-                                    self.settings_draft.foreground = None;
-                                    changed = true;
-                                }
-                            }
-                        });
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-
-                    let default_theme = terminal::TermTheme::from_scheme(&self.settings_draft.color_scheme);
-                    let preset_bg = [default_theme.background.r(), default_theme.background.g(), default_theme.background.b()];
-                    let preset_fg = [default_theme.foreground.r(), default_theme.foreground.g(), default_theme.foreground.b()];
-                    let mut bg = self.settings_draft.background.unwrap_or(preset_bg);
-                    let mut fg = self.settings_draft.foreground.unwrap_or(preset_fg);
-
-                    let border_color = if dark { Color32::from_gray(80) } else { Color32::from_gray(200) };
-                    
-                    let draw_color_picker = |ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]| -> bool {
-                        ui.label(label);
-                        let mut res = false;
-                        egui::Frame::NONE
-                            .stroke(egui::Stroke::new(1.0, border_color))
-                            .inner_margin(2.0)
-                            .corner_radius(4)
-                            .show(ui, |ui: &mut egui::Ui| {
-                                // Temporarily add a very subtle inner stroke to the color edit button 
-                                // so it doesn't blend into the gap if the color matches the background
-                                let prev_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-                                ui.visuals_mut().widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(220) });
-                                res = ui.color_edit_button_srgb(color).changed();
-                                ui.visuals_mut().widgets.noninteractive.bg_stroke = prev_stroke;
-                            });
-                        res
-                    };
-                    
-                    if draw_color_picker(ui, "Background", &mut bg) {
-                        self.settings_draft.background = Some(bg);
-                        changed = true;
-                    }
-                        
-                    ui.add_space(4.0);
-                    
-                    if draw_color_picker(ui, "Foreground", &mut fg) {
-                        self.settings_draft.foreground = Some(fg);
-                        changed = true;
-                    }
-                    ui.add_space(4.0);
-                    
-                    let mut sidebar_bg = self.settings_draft.sidebar_card_color.unwrap_or([0, 111, 238]);
-                    if draw_color_picker(ui, "Sidebar Card Color", &mut sidebar_bg) {
-                        self.settings_draft.sidebar_card_color = Some(sidebar_bg);
-                        changed = true;
-                    }
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-
-                    ui.label(RichText::new("Notifications").size(14.0).strong());
-                    ui.add_space(4.0);
-
-                    if ui.checkbox(&mut self.notification_draft.enabled, "启用 Windows 系统通知").changed() {
-                        changed = true;
-                    }
-
-                    if self.notification_draft.enabled {
-                        ui.indent("notification_options", |ui| {
-                            if ui.checkbox(&mut self.notification_draft.on_attention_needed, "AI 任务等待确认 / Bell 响铃时提醒").changed() {
-                                changed = true;
-                            }
-                            if ui.checkbox(&mut self.notification_draft.on_process_exit, "任务完成 / 进程退出时提醒").changed() {
-                                changed = true;
-                            }
-                            if ui.checkbox(&mut self.notification_draft.only_when_unfocused, "仅在后台或非活动会话时提醒（智能免打扰）").changed() {
-                                changed = true;
-                            }
-                            if ui.checkbox(&mut self.notification_draft.play_sound, "播放提示音").changed() {
-                                changed = true;
-                            }
-                        });
-                    }
-
-                    ui.add_space(16.0);
-                    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                        if ui.button("Reset defaults").clicked() {
-                            self.settings_draft = ThemeSettings::default();
-                            self.notification_draft = NotificationSettings::default();
-                            changed = true;
-                        }
-                    });
-                });
-            });
+    /// 设置界面的模态小窗。
+    fn settings_dialog(&mut self, ui: &mut egui::Ui) {
+        let changed = crate::ui::settings::show_settings_modal(
+            ui,
+            &mut self.settings_draft,
+            &mut self.notification_draft,
+            &mut self.show_settings,
+        );
 
         if changed {
             self.config.theme = self.settings_draft.clone();
@@ -799,212 +622,53 @@ impl HubApp {
             ui.ctx().set_visuals(app_visuals(self.settings_draft.dark));
             let _ = self.config.save();
         }
-        if close {
-            self.show_settings = false;
-        }
     }
 
     /// 新增会话的模态小窗。
     fn add_cli_dialog(&mut self, ui: &mut egui::Ui) {
-        let mut confirm = false;
-        let mut cancel = false;
+        let accent_rgb = self.config.theme.sidebar_card_color.unwrap_or([147, 112, 219]);
+        let action = crate::ui::session_modal::show_session_modal(
+            ui,
+            false,
+            &mut self.new_name,
+            &mut self.new_command,
+            &mut self.new_cwd,
+            accent_rgb,
+        );
 
-        let screen_rect = ui.ctx().input(|i| i.raw.screen_rect).unwrap_or_else(|| ui.max_rect());
-        ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(150));
-
-        egui::Area::new(egui::Id::new("add_session_modal"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ui.ctx(), |ui: &mut egui::Ui| {
-                let dark = ui.visuals().dark_mode;
-                let modal_bg = if dark { Color32::from_rgb(35, 35, 35) } else { Color32::from_rgb(250, 250, 250) };
-                let stroke = if dark { egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60)) } else { egui::Stroke::new(1.0, Color32::from_rgb(220, 220, 220)) };
-
-                let frame = egui::Frame::NONE
-                    .fill(modal_bg)
-                    .stroke(stroke)
-                    .corner_radius(16)
-                    .inner_margin(32.0)
-                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
-                
-                frame.show(ui, |ui: &mut egui::Ui| {
-                    let visuals = &mut ui.style_mut().visuals;
-                    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
-                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
-                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
-                    visuals.selection.stroke = egui::Stroke::new(1.5, Color32::from_rgb(0, 111, 238));
-
-                    ui.set_width(340.0);
-                        
-                    // Header with close button
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.label(RichText::new("Add CLI Session").size(18.0).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
-                            let color = if resp.hovered() { Color32::from_rgb(220, 60, 50) } else { if dark { Color32::from_gray(140) } else { Color32::from_gray(120) } };
-                            
-                            let c = rect.center();
-                            let s = 4.5;
-                            ui.painter().line_segment([c - egui::vec2(s, s), c + egui::vec2(s, s)], egui::Stroke::new(1.5, color));
-                            ui.painter().line_segment([c - egui::vec2(s, -s), c + egui::vec2(s, -s)], egui::Stroke::new(1.5, color));
-                            
-                            if resp.clicked() {
-                                cancel = true;
-                            }
-                        });
-                    });
-                    ui.add_space(16.0);
-
-                    ui.label(RichText::new("Name").size(12.0));
-                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.new_name).margin(egui::vec2(8.0, 5.0)));
-                    ui.add_space(8.0);
-
-                    ui.label(RichText::new("Command").size(12.0));
-                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.new_command).margin(egui::vec2(8.0, 5.0)));
-                    ui.add_space(8.0);
-
-                    ui.label(RichText::new("Working directory (optional)").size(12.0));
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        let browse_w = 75.0;
-                        let text_w = (ui.available_width() - browse_w - ui.spacing().item_spacing.x).max(100.0);
-                        ui.add_sized(egui::vec2(text_w, 28.0), egui::TextEdit::singleline(&mut self.new_cwd).margin(egui::vec2(8.0, 5.0)));
-                        if ui.add_sized(egui::vec2(browse_w, 28.0), egui::Button::new("Browse...")).clicked() {
-                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                self.new_cwd = path.display().to_string();
-                            }
-                        }
-                    });
-                    ui.add_space(16.0);
-
-                    let name_ok = !self.new_name.trim().is_empty();
-                    let cmd_ok = !self.new_command.trim().is_empty();
-                    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                        let add_btn = egui::Button::new(RichText::new("Add Session").color(Color32::WHITE).strong())
-                            .fill(Color32::from_rgb(0, 111, 238))
-                            .min_size(egui::vec2(95.0, 28.0));
-                        if ui.add_enabled(name_ok && cmd_ok, add_btn).clicked() {
-                            confirm = true;
-                        }
-                        ui.add_space(4.0);
-                        if ui.add_sized(egui::vec2(75.0, 28.0), egui::Button::new("Cancel")).clicked() {
-                            cancel = true;
-                        }
-                    });
-                });
-            });
-
-        if confirm {
-            self.add_cli();
-        }
-        if confirm || cancel {
-            self.adding_cli = false;
+        match action {
+            crate::ui::session_modal::SessionModalAction::Confirm => {
+                self.add_cli();
+                self.adding_cli = false;
+            }
+            crate::ui::session_modal::SessionModalAction::Cancel => {
+                self.adding_cli = false;
+            }
+            crate::ui::session_modal::SessionModalAction::None => {}
         }
     }
 
     /// 编辑会话的模态小窗。
     fn edit_cli_dialog(&mut self, ui: &mut egui::Ui) {
-        let mut confirm = false;
-        let mut cancel = false;
+        let accent_rgb = self.config.theme.sidebar_card_color.unwrap_or([147, 112, 219]);
+        let action = crate::ui::session_modal::show_session_modal(
+            ui,
+            true,
+            &mut self.edit_name,
+            &mut self.edit_command,
+            &mut self.edit_cwd,
+            accent_rgb,
+        );
 
-        let screen_rect = ui.ctx().input(|i| i.raw.screen_rect).unwrap_or_else(|| ui.max_rect());
-        ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(150));
-
-        egui::Area::new(egui::Id::new("edit_session_modal"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ui.ctx(), |ui: &mut egui::Ui| {
-                let dark = ui.visuals().dark_mode;
-                let modal_bg = if dark { Color32::from_rgb(35, 35, 35) } else { Color32::from_rgb(250, 250, 250) };
-                let stroke = if dark { egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60)) } else { egui::Stroke::new(1.0, Color32::from_rgb(220, 220, 220)) };
-
-                let frame = egui::Frame::NONE
-                    .fill(modal_bg)
-                    .stroke(stroke)
-                    .corner_radius(16)
-                    .inner_margin(32.0)
-                    .shadow(egui::epaint::Shadow { offset: [0, 16], blur: 32, spread: 0, color: Color32::from_black_alpha(if dark { 120 } else { 30 }) });
-                
-                frame.show(ui, |ui: &mut egui::Ui| {
-                    let visuals = &mut ui.style_mut().visuals;
-                    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
-                    visuals.widgets.inactive.bg_fill = if dark { Color32::from_rgb(24, 24, 27) } else { Color32::WHITE };
-                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(60) } else { Color32::from_gray(210) });
-                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, if dark { Color32::from_gray(100) } else { Color32::from_gray(170) });
-                    visuals.selection.stroke = egui::Stroke::new(1.5, Color32::from_rgb(0, 111, 238));
-
-                    ui.set_width(340.0);
-                        
-                    // Header with close button
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.label(RichText::new("Edit CLI Session").size(18.0).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
-                            let color = if resp.hovered() { Color32::from_rgb(220, 60, 50) } else { if dark { Color32::from_gray(140) } else { Color32::from_gray(120) } };
-                            
-                            let c = rect.center();
-                            let s = 4.5;
-                            ui.painter().line_segment([c - egui::vec2(s, s), c + egui::vec2(s, s)], egui::Stroke::new(1.5, color));
-                            ui.painter().line_segment([c - egui::vec2(s, -s), c + egui::vec2(s, -s)], egui::Stroke::new(1.5, color));
-                            
-                            if resp.clicked() {
-                                cancel = true;
-                            }
-                        });
-                    });
-                    ui.add_space(16.0);
-
-                    ui.label(RichText::new("Name").size(12.0));
-                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.edit_name).margin(egui::vec2(8.0, 5.0)));
-                    ui.add_space(8.0);
-
-                    ui.label(RichText::new("Command").size(12.0));
-                    ui.add_sized(egui::vec2(ui.available_width(), 28.0), egui::TextEdit::singleline(&mut self.edit_command).margin(egui::vec2(8.0, 5.0)));
-                    ui.add_space(8.0);
-
-                    ui.label(RichText::new("Working directory (optional)").size(12.0));
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        let browse_w = 75.0;
-                        let text_w = (ui.available_width() - browse_w - ui.spacing().item_spacing.x).max(100.0);
-                        ui.add_sized(egui::vec2(text_w, 28.0), egui::TextEdit::singleline(&mut self.edit_cwd).margin(egui::vec2(8.0, 5.0)));
-                        if ui.add_sized(egui::vec2(browse_w, 28.0), egui::Button::new("Browse...")).clicked() {
-                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                self.edit_cwd = path.display().to_string();
-                            }
-                        }
-                    });
-                    ui.add_space(16.0);
-
-                    let name_ok = !self.edit_name.trim().is_empty();
-                    let cmd_ok = !self.edit_command.trim().is_empty();
-                    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut egui::Ui| {
-                        let save_btn = egui::Button::new(RichText::new("Save").color(Color32::WHITE).strong())
-                            .fill(Color32::from_rgb(0, 111, 238))
-                            .min_size(egui::vec2(85.0, 28.0));
-                        if ui.add_enabled(name_ok && cmd_ok, save_btn).clicked() {
-                            confirm = true;
-                        }
-                        ui.add_space(4.0);
-                        if ui.add_sized(egui::vec2(75.0, 28.0), egui::Button::new("Cancel")).clicked() {
-                            cancel = true;
-                        }
-                    });
-                });
-            });
-
-        if confirm {
-            self.edit_cli();
-        }
-        if confirm || cancel {
-            self.editing_cli = None;
+        match action {
+            crate::ui::session_modal::SessionModalAction::Confirm => {
+                self.edit_cli();
+                self.editing_cli = None;
+            }
+            crate::ui::session_modal::SessionModalAction::Cancel => {
+                self.editing_cli = None;
+            }
+            crate::ui::session_modal::SessionModalAction::None => {}
         }
     }
 }

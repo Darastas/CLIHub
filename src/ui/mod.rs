@@ -2,6 +2,8 @@
 
 pub mod image_preview;
 pub mod overview;
+pub mod session_modal;
+pub mod settings;
 pub mod sidebar;
 pub mod terminal;
 pub mod titlebar;
