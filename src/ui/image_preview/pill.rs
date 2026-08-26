@@ -9,9 +9,10 @@ use egui::{
 
 use super::loader::ensure_thumbnail_loaded;
 use super::state::ImagePreviewState;
+use crate::config::AttachmentPillPosition;
 use crate::ui::terminal::TermTheme;
 
-/// 在终端区域右下角绘制多模态图片附件悬浮暂存区胶囊
+/// 在终端区域绘制多模态图片附件悬浮暂存区（支持右上角 HUD、顶部横条 Banner、右下角经典三种模式）
 pub fn show_attachment_pill(
     ui: &mut Ui,
     state: &mut ImagePreviewState,
@@ -22,32 +23,47 @@ pub fn show_attachment_pill(
         return;
     }
 
+    match theme.attachment_position {
+        AttachmentPillPosition::TopBanner => show_top_banner_pill(ui, state, term_rect, theme),
+        AttachmentPillPosition::TopRight => show_vertical_pill(ui, state, term_rect, theme, true),
+        AttachmentPillPosition::BottomRight => show_vertical_pill(ui, state, term_rect, theme, false),
+    }
+}
+
+fn show_vertical_pill(
+    ui: &mut Ui,
+    state: &mut ImagePreviewState,
+    term_rect: Rect,
+    theme: &TermTheme,
+    is_top: bool,
+) {
     let dark = theme.is_dark();
     let count = state.attachments.len();
     let now = Instant::now();
 
     let margin_right = 14.0;
-    let margin_bottom = 14.0;
+    let margin_y = 12.0;
 
-    // 按钮通用设计规范（与搜索栏按键群完全一致）
     let btn_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
     let btn_hover = if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(16) };
     let btn_base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
     let btn_hover_stroke = if dark { Color32::from_white_alpha(20) } else { Color32::from_black_alpha(18) };
     let btn_shadow = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) };
 
-    // ---- 顶级纯黑中性微透卡片面板（底色 100% 对齐 CLIHub 主题，移除多余标头行）----
     let card_w = 268.0;
     let item_h = 48.0;
     let padding_y = 6.0;
     let list_spacing = 4.0;
     let total_h = (count as f32 * item_h) + ((count.saturating_sub(1)) as f32 * list_spacing) + padding_y * 2.0;
 
+    let card_y = if is_top {
+        term_rect.min.y + margin_y
+    } else {
+        term_rect.max.y - margin_y - total_h
+    };
+
     let card_rect = Rect::from_min_size(
-        Pos2::new(
-            term_rect.max.x - margin_right - card_w,
-            term_rect.max.y - margin_bottom - total_h,
-        ),
+        Pos2::new(term_rect.max.x - margin_right - card_w, card_y),
         vec2(card_w, total_h),
     );
 
@@ -56,20 +72,10 @@ pub fn show_attachment_pill(
         state.last_interaction = Some(now);
     }
 
-    // 纯粹中性底色（与 Workspace 卡片底色完全同源）
-    let panel_bg = if dark {
-        Color32::from_rgb(18, 18, 22)
-    } else {
-        Color32::from_rgb(248, 249, 252)
-    };
-    let border_stroke = if dark {
-        Color32::from_white_alpha(10)
-    } else {
-        Color32::from_black_alpha(12)
-    };
-
-    // 柔和漫反射环境底阴影
+    let panel_bg = if dark { Color32::from_rgb(18, 18, 22) } else { Color32::from_rgb(248, 249, 252) };
+    let border_stroke = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) };
     let shadow_color = Color32::from_black_alpha(if dark { 75 } else { 18 });
+
     let painter = ui.painter();
     painter.rect_filled(card_rect.translate(vec2(0.0, 2.0)), 12.0, shadow_color);
     painter.rect_filled(card_rect, 12.0, panel_bg);
@@ -257,6 +263,169 @@ pub fn show_attachment_pill(
                 .args(["/select,", &path.to_string_lossy()])
                 .spawn();
         }
+    }
+}
+
+fn show_top_banner_pill(
+    ui: &mut Ui,
+    state: &mut ImagePreviewState,
+    term_rect: Rect,
+    theme: &TermTheme,
+) {
+    let dark = theme.is_dark();
+    let count = state.attachments.len();
+    let now = Instant::now();
+
+    let margin_top = 8.0;
+    let margin_left = 12.0;
+
+    let btn_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let btn_hover = if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(16) };
+    let btn_base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+    let btn_hover_stroke = if dark { Color32::from_white_alpha(20) } else { Color32::from_black_alpha(18) };
+    let _btn_shadow = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) };
+
+    let item_w = 175.0;
+    let item_h = 36.0;
+    let spacing = 6.0;
+    let padding_x = 6.0;
+    let total_w = (count as f32 * item_w) + ((count.saturating_sub(1)) as f32 * spacing) + padding_x * 2.0;
+    let banner_h = item_h + 8.0;
+
+    let banner_rect = Rect::from_min_size(
+        Pos2::new(term_rect.min.x + margin_left, term_rect.min.y + margin_top),
+        vec2(total_w.min(term_rect.width() - margin_left * 2.0), banner_h),
+    );
+
+    let banner_resp = ui.allocate_rect(banner_rect, Sense::hover());
+    if banner_resp.hovered() {
+        state.last_interaction = Some(now);
+    }
+
+    let panel_bg = if dark { Color32::from_rgb(18, 18, 22) } else { Color32::from_rgb(248, 249, 252) };
+    let border_stroke = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) };
+    let shadow_color = Color32::from_black_alpha(if dark { 75 } else { 18 });
+
+    let painter = ui.painter();
+    painter.rect_filled(banner_rect.translate(vec2(0.0, 1.5)), 8.0, shadow_color);
+    painter.rect_filled(banner_rect, 8.0, panel_bg);
+    painter.rect_stroke(banner_rect, 8.0, Stroke::new(0.5, border_stroke), egui::StrokeKind::Inside);
+
+    let mut to_remove_id: Option<u64> = None;
+    let mut to_preview_id: Option<u64> = None;
+
+    let items_left = banner_rect.min.x + padding_x;
+    for (i, item) in state.attachments.iter_mut().enumerate() {
+        let item_x = items_left + (i as f32 * (item_w + spacing));
+        if item_x + item_w > banner_rect.max.x + 2.0 {
+            break;
+        }
+        let item_rect = Rect::from_min_size(
+            Pos2::new(item_x, banner_rect.min.y + 4.0),
+            vec2(item_w, item_h),
+        );
+
+        let item_resp = ui.interact(item_rect, Id::new(("top_pill_row", item.id)), Sense::hover());
+        let item_hf = ui.ctx().animate_bool(Id::new(("top_pill_h", item.id)), item_resp.hovered());
+
+        let card_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+        let card_hover = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+        let card_bg = lerp_color(card_base, card_hover, item_hf);
+        let card_base_stroke = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(10) };
+        let card_hover_stroke = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(18) };
+        let card_stroke = lerp_color(card_base_stroke, card_hover_stroke, item_hf);
+
+        painter.rect_filled(item_rect, 6.0, card_bg);
+        painter.rect_stroke(item_rect, 6.0, Stroke::new(0.5, card_stroke), egui::StrokeKind::Inside);
+
+        ensure_thumbnail_loaded(ui.ctx(), item);
+
+        // 缩略图（26x26）
+        let thumb_rect = Rect::from_min_size(
+            Pos2::new(item_rect.min.x + 5.0, item_rect.min.y + 5.0),
+            vec2(26.0, 26.0),
+        );
+        if let Some(tex) = &item.thumbnail {
+            let img = Image::from_texture(tex).corner_radius(CornerRadius::same(4));
+            img.paint_at(ui, thumb_rect);
+        } else {
+            painter.rect_filled(thumb_rect, 4.0, Color32::from_gray(40));
+        }
+
+        let thumb_resp = ui.interact(thumb_rect, Id::new(("top_thumb_click", item.id)), Sense::click());
+        if thumb_resp.clicked() {
+            to_preview_id = Some(item.id);
+        }
+        thumb_resp.on_hover_text("点击放大预览");
+
+        // 文件名
+        let name_display = if item.file_name.chars().count() > 8 {
+            let prefix: String = item.file_name.chars().take(6).collect();
+            format!("{prefix}...")
+        } else {
+            item.file_name.clone()
+        };
+
+        let title_c = if dark { Color32::from_rgb(205, 214, 244) } else { Color32::from_rgb(30, 41, 59) };
+        painter.text(
+            Pos2::new(thumb_rect.max.x + 6.0, item_rect.center().y),
+            Align2::LEFT_CENTER,
+            name_display,
+            FontId::new(11.5, egui::FontFamily::Proportional),
+            title_c,
+        );
+
+        // [🔍] 放大按键
+        let btn_y = item_rect.center().y;
+        let prev_rect = Rect::from_center_size(Pos2::new(item_rect.max.x - 36.0, btn_y), vec2(18.0, 18.0));
+        let prev_resp = ui.interact(prev_rect, Id::new(("top_prev_btn", item.id)), Sense::click());
+        let prev_hf = ui.ctx().animate_bool(Id::new(("top_prev_h", item.id)), prev_resp.hovered());
+        let p_bg = lerp_color(btn_base, btn_hover, prev_hf);
+        let p_stroke = lerp_color(btn_base_stroke, btn_hover_stroke, prev_hf);
+        painter.rect_filled(prev_rect, 4.0, p_bg);
+        painter.rect_stroke(prev_rect, 4.0, Stroke::new(0.5, p_stroke), egui::StrokeKind::Inside);
+        let p_fg = lerp_color(
+            if dark { Color32::from_gray(160) } else { Color32::from_gray(100) },
+            if dark { Color32::WHITE } else { Color32::BLACK },
+            prev_hf,
+        );
+        let pc = prev_rect.center();
+        let lens_c = pc + vec2(-1.0, -1.0);
+        painter.circle_stroke(lens_c, 3.0, Stroke::new(1.0, p_fg));
+        painter.line_segment([lens_c + vec2(2.0, 2.0), pc + vec2(3.5, 3.5)], Stroke::new(1.2, p_fg));
+        if prev_resp.clicked() {
+            to_preview_id = Some(item.id);
+        }
+        prev_resp.on_hover_text("全屏大图预览");
+
+        // [✕] 删除按键
+        let del_rect = Rect::from_center_size(Pos2::new(item_rect.max.x - 14.0, btn_y), vec2(18.0, 18.0));
+        let del_resp = ui.interact(del_rect, Id::new(("top_del_btn", item.id)), Sense::click());
+        let del_hf = ui.ctx().animate_bool(Id::new(("top_del_h", item.id)), del_resp.hovered());
+        let d_bg = lerp_color(btn_base, btn_hover, del_hf);
+        let d_stroke = lerp_color(btn_base_stroke, btn_hover_stroke, del_hf);
+        painter.rect_filled(del_rect, 4.0, d_bg);
+        painter.rect_stroke(del_rect, 4.0, Stroke::new(0.5, d_stroke), egui::StrokeKind::Inside);
+        let d_fg = lerp_color(
+            if dark { Color32::from_gray(160) } else { Color32::from_gray(100) },
+            Color32::from_rgb(245, 90, 90),
+            del_hf,
+        );
+        let dc = del_rect.center();
+        let d_len = 2.8;
+        painter.line_segment([dc + vec2(-d_len, -d_len), dc + vec2(d_len, d_len)], Stroke::new(1.2, d_fg));
+        painter.line_segment([dc + vec2(-d_len, d_len), dc + vec2(d_len, -d_len)], Stroke::new(1.2, d_fg));
+        if del_resp.clicked() {
+            to_remove_id = Some(item.id);
+        }
+        del_resp.on_hover_text("移除附件");
+    }
+
+    if let Some(id) = to_remove_id {
+        state.remove_attachment(id);
+    }
+    if let Some(id) = to_preview_id {
+        state.open_preview(id);
     }
 }
 

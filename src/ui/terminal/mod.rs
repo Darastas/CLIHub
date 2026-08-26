@@ -40,6 +40,7 @@ pub struct TermTheme {
     pub cursor: Color32,
     pub ansi: [Color32; 16],
     pub sidebar_card_color: Option<[u8; 3]>,
+    pub attachment_position: crate::config::AttachmentPillPosition,
 }
 
 impl TermTheme {
@@ -71,6 +72,7 @@ impl TermTheme {
                     Color32::from_rgb(250, 250, 250),
                 ],
                 sidebar_card_color: None,
+                attachment_position: crate::config::AttachmentPillPosition::default(),
             },
             "One Half Dark" => Self {
                 font_size: 15.0,
@@ -98,6 +100,7 @@ impl TermTheme {
                     Color32::from_rgb(220, 223, 228),
                 ],
                 sidebar_card_color: None,
+                attachment_position: crate::config::AttachmentPillPosition::default(),
             },
             "Solarized Dark" => Self {
                 font_size: 15.0,
@@ -125,6 +128,7 @@ impl TermTheme {
                     Color32::from_rgb(253, 246, 227),
                 ],
                 sidebar_card_color: None,
+                attachment_position: crate::config::AttachmentPillPosition::default(),
             },
             "Solarized Light" => Self {
                 font_size: 15.0,
@@ -152,6 +156,7 @@ impl TermTheme {
                     Color32::from_rgb(253, 246, 227),
                 ],
                 sidebar_card_color: None,
+                attachment_position: crate::config::AttachmentPillPosition::default(),
             },
             "Nord" => Self {
                 font_size: 15.0,
@@ -179,6 +184,7 @@ impl TermTheme {
                     Color32::from_rgb(236, 239, 244),
                 ],
                 sidebar_card_color: None,
+                attachment_position: crate::config::AttachmentPillPosition::default(),
             },
             _ => Self {
                 font_size: 15.0,
@@ -206,6 +212,7 @@ impl TermTheme {
                     Color32::from_rgb(255, 255, 255),
                 ],
                 sidebar_card_color: None,
+                attachment_position: crate::config::AttachmentPillPosition::default(),
             },
         };
         theme
@@ -219,6 +226,7 @@ impl TermTheme {
             self.foreground = Color32::from_rgb(r, g, b);
         }
         self.sidebar_card_color = settings.sidebar_card_color;
+        self.attachment_position = settings.attachment_position;
     }
 
     pub fn is_dark(&self) -> bool {

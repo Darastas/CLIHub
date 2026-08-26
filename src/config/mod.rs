@@ -26,7 +26,19 @@ pub struct CliEntry {
     pub env: BTreeMap<String, String>,
 }
 
-/// 终端主题设置。
+/// 多模态图片预览胶囊位置与形态设置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AttachmentPillPosition {
+    /// 终端视口右上角悬浮（HUD 模式，不挡底部输入行与最新输出，默认推荐）
+    #[default]
+    TopRight,
+    /// 顶部 Tab 栏下方横向附件槽（Top Banner 模式，横向平铺）
+    TopBanner,
+    /// 终端视口右下角悬浮（经典模式）
+    BottomRight,
+}
+
+/// 终端主题与视觉设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeSettings {
     /// 暗色主题预设 (UI 主题)
@@ -47,6 +59,9 @@ pub struct ThemeSettings {
     /// 是否开启全局玻璃质感（半透明背景）
     #[serde(default)]
     pub glassmorphism: bool,
+    /// 多模态图片胶囊位置与形态
+    #[serde(default)]
+    pub attachment_position: AttachmentPillPosition,
 }
 
 fn default_color_scheme() -> String {
@@ -98,6 +113,7 @@ impl Default for ThemeSettings {
             foreground: None,
             sidebar_card_color: None,
             glassmorphism: false,
+            attachment_position: AttachmentPillPosition::default(),
         }
     }
 }
