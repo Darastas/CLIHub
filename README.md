@@ -20,6 +20,7 @@
 ![CLIHub Overview View](Example-Overview.png)
 
 ---
+So much thanks for codex repo！
 
 CLIHub is a modern desktop terminal aggregator purpose-built for the AI era. It unifies your scattered command-line tools — especially AI-powered ones like **OpenAI Codex CLI**, **Claude Code**, **Oh My PI**, and more — into a single, beautifully crafted application.
 
