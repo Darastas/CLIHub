@@ -38,6 +38,7 @@ pub struct ChatState {
     pub native_runs: Vec<super::native::NativeRun>,
     pub theme: crate::ui::terminal::TermTheme,
     pub chat_expanded: bool,
+    pub sidebar_expanded: bool,
     automation: Option<Automation>,
 }
 
@@ -68,7 +69,8 @@ impl ChatState {
             native_mode: true,
             native_runs: Vec::new(),
             theme: crate::ui::terminal::TermTheme::from_scheme("One Half Dark"),
-            chat_expanded: true,
+            chat_expanded: false,
+            sidebar_expanded: true,
             automation: None,
         };
         if let Err(e) = state.load() {
@@ -125,15 +127,35 @@ impl ChatState {
         Ok(())
     }
 
+    pub fn delete_round(&mut self, index: usize) -> Result<()> {
+        if index >= self.rounds.len() {
+            return Ok(());
+        }
+        let (dir, _) = self.rounds.remove(index);
+        let _ = fs::remove_dir_all(&dir);
+        if self.rounds.is_empty() {
+            self.active = None;
+            self.messages.clear();
+            self.native_runs.clear();
+            self.recipient.clear();
+        } else {
+            let next_idx = index.min(self.rounds.len() - 1);
+            self.select(next_idx)?;
+        }
+        Ok(())
+    }
+
     pub fn create(&mut self) -> Result<()> {
         let draft = self.draft.as_ref().context("没有工作流草稿")?;
-        if draft.title.trim().is_empty() || draft.goal.trim().is_empty() {
-            bail!("请填写名称和目标");
+        if draft.title.trim().is_empty() {
+            bail!("请填写工作流名称");
         }
         let repo = PathBuf::from(draft.repo.trim());
-        if !repo.is_dir() {
-            bail!("请选择有效的工作目录");
-        }
+        let repo = if repo.is_dir() {
+            repo
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        };
         let members: Vec<_> = draft
             .members
             .iter()
@@ -141,20 +163,28 @@ impl ChatState {
             .cloned()
             .collect();
         if members.is_empty() {
-            bail!("请至少选择一个 AI");
-        }
-        if members.iter().any(|m| m.role.trim().is_empty()) {
-            bail!("请填写每个 AI 的职责");
+            bail!("请至少选择一个 Agent");
         }
         let mut participants = vec![Participant {
             id: "user".into(),
             name: "我".into(),
             role: "协调者".into(),
         }];
-        participants.extend(members.iter().map(|m| Participant {
-            id: m.id.clone(),
-            name: m.name.clone(),
-            role: m.role.trim().into(),
+        participants.extend(members.iter().enumerate().map(|(idx, m)| {
+            let role = if !m.role.trim().is_empty() {
+                m.role.trim().to_string()
+            } else if idx == 0 {
+                "主开发".to_string()
+            } else if idx == 1 {
+                "代码审查".to_string()
+            } else {
+                "协同开发".to_string()
+            };
+            Participant {
+                id: m.id.clone(),
+                name: m.name.clone(),
+                role,
+            }
         }));
         let id = Store::new_id("workflow");
         let dir = self.root.join(&id);
@@ -238,12 +268,38 @@ impl ChatState {
         let member = &auto.members[auto.step % auto.members.len()];
         let request_id = Store::new_id("request");
         let team = auto.members.iter().map(|m| format!("{}: {}", m.name, m.role)).collect::<Vec<_>>().join("\n");
-        let mut prompt = format!("你正在全自动多 Agent 协作中，不要只确认收到任务，不要等待用户再次下令。\n你是 {}。职责：{}。\n团队：{}\n工作流目标：{}\n本次用户任务：{}\n工作目录：{}\n这是第 {} 次执行。实际执行职责，检查前一位结果，修复或验证，并给出可交接结果。只有确认整个用户任务已完成且不需要其他成员修正时，最后单独一行输出 [WORKFLOW_COMPLETE]；否则写清下一位需要继续做什么。不能把问候或接收成功当作任务完成。\n", member.name, member.role, team, round.goal, auto.task, round.repo.display(), auto.step + 1);
+        let role_guidance = match member.role.as_str() {
+            "方案设计" => "【方案设计专项规范】：深入分析当前任务与目标，梳理架构设计、技术选型与实现路径；可在本地工作目录编写或更新方案设计 Markdown 文档，并在交接总结中清晰列出后续由主开发落地的具体实施步骤。",
+            "主开发" => "【主开发专项规范】：严格按照方案设计与本次任务要求，在工作目录中进行高质量代码实现与必要文件修改，确保项目可构建通过并符合工程规范。",
+            "代码审查" => "【代码审查专项规范】：仔细审查前序实现与代码改动，重点排查逻辑漏洞、边界异常、代码风格与性能安全，提出具体修改意见或直接进行修正。",
+            "测试验证" => "【测试验证专项规范】：针对功能变更执行编译构建与测试套件验证，排查回归缺陷并反馈真实测试结果。",
+            "协调者" => "【协调者专项规范】：统筹协作流程，跟进任务进度，梳理阶段性成果并组织后续交接。",
+            _ => "【执行要求】：认真履行当前职责，检查前序角色成果，推进任务达成并给出明确可交接的成果说明。",
+        };
+        let mut prompt = format!(
+            "# 多 Agent 协同任务说明\n\n\
+            > 状态：自动协同进行中。请直接执行实际工作，不要只回复接收成功或客套问候。\n\n\
+            - **执行角色**：{}（职责：{}）\n\
+            - **团队分工**：\n{}\n\
+            - **工作流目标**：{}\n\
+            - **本次用户任务**：{}\n\
+            - **项目工作目录**：{}\n\
+            - **执行轮次**：第 {} 次交接\n\n\
+            ## 职责指导\n{}\n\n\
+            ## 协同要求\n\
+            1. 实际履行职责，检查上一位角色的成果与输出，推进任务实质完成。\n\
+            2. 只有确认整个用户任务已彻底完成、且不需要其他角色进一步开发/审查/验证时，才在交接回复末尾单独一行输出 `[WORKFLOW_COMPLETE]`。\n\
+            3. 否则，写清你所做的工作、阶段性成果以及下一位角色需要继续执行的具体事项。\n",
+            member.name, member.role, team, round.goal, auto.task, round.repo.display(), auto.step + 1, role_guidance
+        );
         let history = Store::new(dir)?.all_messages()?;
-        for m in history.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
-            prompt.push_str(&format!("\n[{} -> {}]\n{}\n", m.from, m.to, m.body));
+        if !history.is_empty() {
+            prompt.push_str("\n## 历史交接上下文\n");
+            for m in history.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
+                prompt.push_str(&format!("\n### [{} → {}]\n{}\n", m.from, m.to, m.body));
+            }
         }
-        prompt.push_str(&format!("\n[本次交接]\n{}", instruction));
+        prompt.push_str(&format!("\n## 本次输入与交接指令\n{}\n", instruction));
         Store::new(dir)?.send(Message { id: request_id.clone(), round: round.id.clone(), from, to: member.id.clone(), body: instruction, reply_to: reply, anchor: None, snapshot: None, time: Store::now() })?;
         if self.native_mode {
             let native = super::native::NativeRun::start(&member.command, &round.repo, dir, &round.id, &member.id, &member.name, &request_id, prompt, &self.theme)?;

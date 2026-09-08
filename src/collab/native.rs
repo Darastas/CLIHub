@@ -35,14 +35,31 @@ impl NativeRun {
         anyhow::ensure!(helper.is_file(), "缺少配套信箱工具：{}", helper.display());
         let tasks = dir.join("tasks");
         fs::create_dir_all(&tasks)?;
-        let task = tasks.join(format!("{request}.txt"));
-        let body = tasks.join(format!("{request}-reply.txt"));
+        let task = tasks.join(format!("{request}.md"));
+        let body = tasks.join(format!("{request}-reply.md"));
         let quote = |p: &Path| format!("'{}'", p.display().to_string().replace('\'', "''"));
-        let prompt = format!("{prompt}\n\n交接协议（必须执行）：完成本次职责后，把可交接的最终回复写入 UTF-8 文件 {}，再通过 PowerShell 执行：\n& {} send --room {} --from '{}' --to user --reply-to '{}' --body-file {}\n这是本次执行的最后一个工具操作；提交之后不要再修改项目。仅在终端打印回复不能完成交接。最终任务完成时，回复文件末尾单独一行写 [WORKFLOW_COMPLETE]。不需要等待用户再次下令。", quote(&body), quote(&helper), quote(dir), agent, request, quote(&body));
-        let prompt = format!("开始工作前先确认接收任务，通过 PowerShell 执行：\n& {} read --room {} --agent '{}' --message '{}'\n\n{prompt}", quote(&helper), quote(dir), agent, request);
+        let prompt = format!(
+            "{prompt}\n\n\
+            ## 协同交接协议（必须执行）\n\
+            完成本次职责后，将可交接的最终回复与工作总结写入 UTF-8 Markdown 文件 `{}`，并在终端中通过 PowerShell 运行以下命令完成投递：\n\
+            ```powershell\n\
+            & {} send --room {} --from '{}' --to user --reply-to '{}' --body-file {}\n\
+            ```\n\
+            > 提示：提交之后不要再对代码库做无关修改。若任务已彻底完成且不需要后续角色跟进，请在回复文件末尾单独一行附上 `[WORKFLOW_COMPLETE]`。\n",
+            body.display(), quote(&helper), quote(dir), agent, request, quote(&body)
+        );
+        let prompt = format!(
+            "<!-- 接收确认说明 -->\n\
+            开始工作前请先确认接收任务，在 PowerShell 中执行：\n\
+            ```powershell\n\
+            & {} read --room {} --agent '{}' --message '{}'\n\
+            ```\n\n\
+            {}",
+            quote(&helper), quote(dir), agent, request, prompt
+        );
         fs::write(&task, prompt)?;
         if runner::detect(command)? == runner::Kind::Codex { args.push("--no-alt-screen".into()); }
-        args.push(format!("请读取任务文件 {} 并立即执行其中的任务和交接协议。", task.display()));
+        args.push(format!("请阅读任务说明规范文件 '{}' 并执行相应职责与协同交接。", task.display()));
         let mut session = Session::new(0, name, command, cwd.to_path_buf());
         let mut tab = TerminalInstance::new();
         tab.terminal = Some(Terminal::new(100, 30, theme.to_theme_colors()));
