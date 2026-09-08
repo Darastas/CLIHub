@@ -96,8 +96,42 @@ pub fn detect(command: &str) -> Result<Kind> {
     }
 }
 
+pub fn is_valid_pe_exe(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        if let Ok(meta) = path.metadata() {
+            if meta.is_file() && meta.len() >= 10240 {
+                if let Ok(mut f) = std::fs::File::open(path) {
+                    use std::io::Read;
+                    let mut mz_header = [0u8; 2];
+                    if f.read_exact(&mut mz_header).is_ok() && &mz_header == b"MZ" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        path.is_file()
+    }
+}
+
 fn find_on_path(name: &str) -> Option<PathBuf> {
     let dirs: Vec<_> = std::env::split_paths(&std::env::var_os("PATH")?).collect();
+    let default_alias = [name];
+    let aliases: &[&str] = match name {
+        "opencode" => &["opencode", "opencode2"],
+        "opencode2" => &["opencode2", "opencode"],
+        "agy" => &["agy", "antigravity"],
+        "antigravity" => &["antigravity", "agy"],
+        "omp" => &["omp", "oh-my-pi"],
+        "oh-my-pi" => &["oh-my-pi", "omp"],
+        "mimo" => &["mimo", "mimocode"],
+        "mimocode" => &["mimocode", "mimo"],
+        _ => &default_alias,
+    };
     // Prefer a native executable over a shell shim, including in later PATH entries.
     let suffixes: &[&str] = if cfg!(windows) {
         &[".exe", ".cmd", ".ps1"]
@@ -105,10 +139,18 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
         &[""]
     };
     for suffix in suffixes {
-        for dir in &dirs {
-            let path = dir.join(format!("{name}{suffix}"));
-            if path.is_file() {
-                return Some(path);
+        for alias in aliases {
+            for dir in &dirs {
+                let path = dir.join(format!("{alias}{suffix}"));
+                if path.is_file() {
+                    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+                        if is_valid_pe_exe(&path) {
+                            return Some(path);
+                        }
+                    } else {
+                        return Some(path);
+                    }
+                }
             }
         }
     }
@@ -122,7 +164,9 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
         .unwrap_or("")
         .to_ascii_lowercase();
     if extension != "cmd" && extension != "ps1" {
-        return Ok((path, Vec::new()));
+        if is_valid_pe_exe(&path) {
+            return Ok((path, Vec::new()));
+        }
     }
     let dir = path.parent().context("CLI 路径没有父目录")?;
     let name = match kind {
@@ -136,9 +180,13 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
         Kind::Gemini => "gemini",
         Kind::Generic => path.file_stem().and_then(|s| s.to_str()).unwrap_or("cli"),
     };
-    let adjacent = dir.join(format!("{name}.exe"));
-    if adjacent.is_file() {
-        return Ok((adjacent, Vec::new()));
+    for alt in [name, if name == "opencode" { "opencode2" } else { "" }] {
+        if !alt.is_empty() {
+            let adjacent = dir.join(format!("{alt}.exe"));
+            if is_valid_pe_exe(&adjacent) {
+                return Ok((adjacent, Vec::new()));
+            }
+        }
     }
     match kind {
         Kind::Codex => {
@@ -162,7 +210,7 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
                     "node_modules/@openai/{platform}/vendor/{target}/codex/codex.exe"
                 )),
             ] {
-                if native.is_file() {
+                if is_valid_pe_exe(&native) {
                     return Ok((native, Vec::new()));
                 }
             }
@@ -173,7 +221,7 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
                     local_node
                 } else {
                     find_on_path("node")
-                        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")))
+                        .filter(|p| is_valid_pe_exe(p))
                         .context("找不到 node.exe，无法启动 Codex npm 安装")?
                 };
                 return Ok((node, vec![script.into_os_string()]));
@@ -181,16 +229,18 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
         }
         Kind::Claude => {
             let native = dir.join("node_modules/@anthropic-ai/claude-code/bin/claude.exe");
-            if native.is_file() {
+            if is_valid_pe_exe(&native) {
                 return Ok((native, Vec::new()));
             }
         }
         Kind::Opencode => {
             for cand in [
-                dir.join("node_modules/opencode-ai/bin/opencode.exe"),
+                dir.join("node_modules/@opencode-ai/cli/bin/opencode2.exe"),
                 dir.join("node_modules/@opencode-ai/cli/bin/opencode.exe"),
+                dir.join("node_modules/opencode-ai/bin/opencode.exe"),
+                dir.join("node_modules/opencode-ai/node_modules/opencode-windows-x64/bin/opencode.exe"),
             ] {
-                if cand.is_file() {
+                if is_valid_pe_exe(&cand) {
                     return Ok((cand, Vec::new()));
                 }
             }
@@ -203,7 +253,7 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
                     local_node
                 } else {
                     find_on_path("node")
-                        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")))
+                        .filter(|p| is_valid_pe_exe(p))
                         .unwrap_or_else(|| PathBuf::from("node.exe"))
                 };
                 return Ok((node, vec![script.into_os_string()]));
@@ -214,13 +264,19 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
 
     #[cfg(windows)]
     {
-        let cmd_path = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd")) {
-            path.clone()
-        } else {
-            path.with_extension("cmd")
-        };
-        if cmd_path.is_file() {
-            return Ok((PathBuf::from("cmd.exe"), vec!["/C".into(), cmd_path.into_os_string()]));
+        for cand in [
+            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd")) {
+                path.clone()
+            } else {
+                path.with_extension("cmd")
+            },
+            dir.join(format!("{name}.cmd")),
+            dir.join("opencode2.cmd"),
+            dir.join("opencode.cmd"),
+        ] {
+            if cand.is_file() {
+                return Ok((PathBuf::from("cmd.exe"), vec!["/C".into(), cand.into_os_string()]));
+            }
         }
     }
 
@@ -565,6 +621,26 @@ mod tests {
         assert_eq!(detect("opencode").unwrap(), Kind::Opencode);
         assert_eq!(detect("omp").unwrap(), Kind::OhMyPi);
         assert_eq!(detect("mimo").unwrap(), Kind::Mimo);
+    }
+
+    #[test]
+    fn test_is_valid_pe_exe() {
+        let fake_path = PathBuf::from(r"C:\Users\14737\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe");
+        if fake_path.is_file() {
+            assert!(!is_valid_pe_exe(&fake_path), "Fake script opencode.exe must not be treated as a valid PE executable");
+        }
+        let real_path = PathBuf::from(r"C:\Users\14737\AppData\Roaming\npm\node_modules\@opencode-ai\cli\bin\opencode2.exe");
+        if real_path.is_file() && real_path.metadata().map(|m| m.len()).unwrap_or(0) >= 10240 {
+            assert!(is_valid_pe_exe(&real_path), "Real opencode2.exe must be recognized as valid PE executable");
+        }
+    }
+
+    #[test]
+    fn test_resolves_opencode_command() {
+        if let Ok((prog, _)) = interactive_command("opencode") {
+            println!("interactive_command(opencode) resolved to: {}", prog.display());
+            assert!(is_valid_pe_exe(&prog) || prog.file_name().is_some_and(|n| n == "cmd.exe"));
+        }
     }
 
     #[test]

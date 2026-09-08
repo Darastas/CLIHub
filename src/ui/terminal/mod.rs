@@ -677,7 +677,13 @@ fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &Te
         )
     };
 
-    ui.horizontal(|ui| {
+    let layout = if embedded {
+        egui::Layout::top_down(egui::Align::Min)
+    } else {
+        egui::Layout::left_to_right(egui::Align::Min)
+    };
+
+    ui.with_layout(layout, |ui| {
         if !embedded {
             ui.add_space(12.0); // 左外边距
         }

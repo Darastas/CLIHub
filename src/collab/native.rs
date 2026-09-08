@@ -121,10 +121,10 @@ impl NativeRun {
     pub fn open_interactive(command: &str, cwd: &Path, dir: &Path, round: &str, agent: &str, name: &str, theme: &TermTheme) -> Self {
         let mut session = Session::new(0, name, command, cwd.to_path_buf());
         let mut tab = TerminalInstance::new();
-        let mut terminal = Terminal::new(100, 30, theme.to_theme_colors());
+        let mut terminal = Terminal::new(70, 30, theme.to_theme_colors());
 
         let cmd_res = runner::interactive_command(command);
-        let mut status = "就绪 · 可交互".to_string();
+        let mut status = "正在启动...".to_string();
 
         match cmd_res {
             Ok((program, mut args)) => {
@@ -137,7 +137,7 @@ impl NativeRun {
                 let cwd = cwd.to_path_buf();
                 let dark = theme.is_dark();
                 let spawn_res = std::thread::Builder::new().name("collab-native-interactive".into()).spawn(move || {
-                    let result = PtyHandle::spawn(&program.to_string_lossy(), &args, &cwd, 30, 100, dark, None)
+                    let result = PtyHandle::spawn(&program.to_string_lossy(), &args, &cwd, 30, 70, dark, None)
                         .with_context(|| format!("启动交互终端 {}，工作目录 {}", program.display(), cwd.display()));
                     let _ = tx.send(result);
                 });
@@ -230,6 +230,7 @@ impl NativeRun {
         if let Some(pending) = &tab.pending_pty {
             match pending.try_recv() {
                 Ok(result) => {
+                    tab.pending_pty = None;
                     let (pty, rx) = match result.context("启动 AI 终端失败") {
                         Ok(value) => value,
                         Err(error) => {
@@ -238,21 +239,25 @@ impl NativeRun {
                             if let Some(terminal) = &mut tab.terminal {
                                 terminal.feed_text(&detail.replace('\n', "\r\n"));
                             }
+                            self.status = "启动失败".into();
                             return Err(error);
                         }
                     };
                     tab.alive = pty.alive.clone();
                     tab.pty = Some(pty);
                     tab.rx = Some(rx);
-                    tab.pending_pty = None;
                     if self.request.is_empty() {
                         self.status = "就绪 · 可交互".into();
                     } else {
                         self.status = "终端已启动 · 等待结果".into();
                     }
                 }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => anyhow::bail!("终端启动中断"),
-                Err(_) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    tab.pending_pty = None;
+                    self.status = "启动中断".into();
+                    anyhow::bail!("终端启动中断");
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
             }
         }
         if let (Some(rx), Some(term)) = (&tab.rx, &mut tab.terminal) {
