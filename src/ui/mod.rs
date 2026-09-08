@@ -1,6 +1,7 @@
 //! 视图渲染层：仅使用 egui 绘制界面，不直接触碰后台进程。
 
 pub mod image_preview;
+pub mod collaboration;
 pub mod overview;
 pub mod session_modal;
 pub mod settings;

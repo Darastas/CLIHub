@@ -258,6 +258,11 @@ impl Drop for PtyHandle {
 /// 必须用 `cmd.exe /C <垫片.cmd> ...` 包装。
 #[cfg(windows)]
 fn resolve_command(command: &str, args: &[String]) -> (String, Vec<String>) {
+    // Resolved executable paths are already structured; spaces belong to the path.
+    let literal = command.trim().trim_matches('"');
+    if Path::new(literal).is_file() && Path::new(literal).extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+        return (literal.to_owned(), args.to_vec());
+    }
     let mut parts = command.split_whitespace();
     let base_cmd = parts.next().unwrap_or(command);
     let mut combined_args: Vec<String> = parts.map(|s| s.to_string()).collect();
@@ -310,6 +315,25 @@ fn find_in_path_fast(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn executable_path_with_spaces_starts_in_pty() {
+        let dir = std::env::temp_dir().join(format!("clihub executable space {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("command with spaces.exe");
+        std::fs::copy(Path::new(&std::env::var("SystemRoot").unwrap()).join("System32/cmd.exe"), &exe).unwrap();
+        let args = vec!["/D".into(), "/C".into(), "echo CLIHUB_SPACE_OK".into()];
+        let (program, actual_args) = resolve_command(&exe.to_string_lossy(), &args);
+        assert_eq!(program, exe.to_string_lossy());
+        assert_eq!(actual_args, args);
+        let (pty, rx) = PtyHandle::spawn(&program, &args, &dir, 24, 80, true, None).unwrap();
+        let mut output = Vec::new();
+        while let Ok(bytes) = rx.recv_timeout(std::time::Duration::from_secs(5)) { output.extend(bytes); }
+        drop(pty);
+        assert!(String::from_utf8_lossy(&output).contains("CLIHUB_SPACE_OK"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     use alacritty_terminal::grid::Dimensions;
 
     /// npm 垫片（claude.cmd）应被 cmd.exe /C 包装。

@@ -85,6 +85,7 @@ pub struct SidebarAction {
     pub move_to: Option<(usize, usize)>,
     /// 切换全景多会话看板
     pub toggle_overview: bool,
+    pub agent_chat: bool,
 }
 
 fn muted(dark: bool) -> Color32 {
@@ -129,6 +130,7 @@ pub fn show(
     sessions: &[Session],
     selected: usize,
     in_overview: bool,
+    chat_active: bool,
     theme: &crate::config::ThemeSettings,
 ) -> SidebarAction {
     let mut action = SidebarAction::default();
@@ -278,8 +280,7 @@ pub fn show(
     // ---- 会话卡片（点击选中，拖动排序）与 底部 Ctrl+C 退出通知 ----
     let card_h = 38.0;
     let margin_x = 12.0;
-    let target_bottom_y = ui.memory(|mem| mem.data.get_temp::<f32>(Id::new("term_bottom_y")))
-        .unwrap_or_else(|| ui.max_rect().max.y - 20.0);
+    let target_bottom_y = ui.max_rect().max.y - 50.0;
     let notif_rect = Rect::from_min_max(
         Pos2::new(ui.max_rect().min.x + margin_x, target_bottom_y - card_h),
         Pos2::new(ui.max_rect().max.x - margin_x, target_bottom_y),
@@ -308,7 +309,7 @@ pub fn show(
             };
 
             for (idx, s) in sessions.iter().enumerate() {
-                let is_sel = idx == selected;
+                let is_sel = idx == selected && !chat_active;
                 ui.push_id(s.id, |ui| {
                     draw_card(ui, s, idx, is_sel, &mut action, theme, dragged_idx, target_idx);
                 });
@@ -375,6 +376,17 @@ pub fn show(
             ui.ctx().request_repaint(); // 维持平滑淡出过渡
         }
     }
+
+    let chat_rect = Rect::from_min_max(
+        Pos2::new(ui.max_rect().min.x + margin_x, ui.max_rect().max.y - 42.0),
+        Pos2::new(ui.max_rect().max.x - margin_x, ui.max_rect().max.y - 10.0),
+    );
+    let chat_resp = ui.interact(chat_rect, Id::new("sidebar_agent_chat"), Sense::click());
+    let chat_bg = if chat_active { Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50) } else if dark { Color32::from_white_alpha(if chat_resp.hovered() { 14 } else { 6 }) } else { Color32::from_black_alpha(if chat_resp.hovered() { 14 } else { 6 }) };
+    p.rect_filled(chat_rect.translate(vec2(0.0, 1.0)), 8.0, if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) });
+    p.rect_filled(chat_rect, 8.0, chat_bg);
+    p.text(chat_rect.center(), Align2::CENTER_CENTER, "◉  Agent Chat", FontId::proportional(12.0), text(dark));
+    if chat_resp.on_hover_text("打开 Agent Chat").clicked() { action.agent_chat = true; }
 
 
     action

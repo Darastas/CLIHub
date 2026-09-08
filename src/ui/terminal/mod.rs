@@ -269,8 +269,17 @@ pub fn show(
     input_enabled: bool,
     theme: &TermTheme,
 ) -> Option<TerminalAction> {
+    show_impl(ui, session, input_enabled, theme, false)
+}
+
+pub fn show_embedded(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &TermTheme) {
+    show_impl(ui, session, input_enabled, theme, true);
+}
+
+fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &TermTheme, embedded: bool) -> Option<TerminalAction> {
     let mut action = None;
 
+    if !embedded {
     // ---- 标签栏（Tab Bar，与 Session 卡片美学 100% 统一）----
     let tab_h = 34.0;
     let dark = theme.is_dark();
@@ -647,6 +656,7 @@ pub fn show(
     ui.add_space(6.0);
     ui.separator();
 
+    }
     // ---- 错误提示 ----
     if let Some(err) = &session.error {
         ui.colored_label(Color32::from_rgb(190, 60, 50), err);
@@ -675,7 +685,7 @@ pub fn show(
         // 点击终端区域时获取焦点；搜索栏未打开且未聚焦搜索框时才自动维持终端焦点
         if resp.clicked() {
             resp.request_focus();
-        } else if input_enabled && !resp.has_focus() && !is_search_open && !find_input_focused {
+        } else if !embedded && input_enabled && !resp.has_focus() && !is_search_open && !find_input_focused {
             resp.request_focus();
         }
         let window_focused = ui.input(|i| i.focused);
@@ -824,7 +834,7 @@ pub fn show(
 
         // 文件拖拽注入（图片文件进入暂存区预览，非图片文件直接注入路径）
         let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
-        if !dropped_files.is_empty() {
+        if !dropped_files.is_empty() && (!embedded || resp.hovered()) {
             let mut paths_text = String::new();
             for file in dropped_files {
                 if let Some(path) = file.path {
@@ -854,7 +864,7 @@ pub fn show(
         }
 
         // 仅在窗口具有 OS 焦点且没有在搜索框输入时转发键盘事件
-        let can_receive_input = input_enabled && window_focused && !find_input_focused;
+        let can_receive_input = input_enabled && focused;
         if can_receive_input {
             if let Some(err) = forward_keys(ui, tab) {
                 session.error = Some(err);
