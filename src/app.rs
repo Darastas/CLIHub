@@ -451,12 +451,14 @@ impl HubApp {
         }
 
         let mut side = sidebar::SidebarAction::default();
-        egui::Panel::left("sidebar")
-            .resizable(false)
-            .exact_size(232.0)
-            .show(ui, |ui| {
-                side = sidebar::show(ui, &self.sessions, self.selected, self.in_overview, self.collaboration_open, &self.config.theme);
-            });
+        if !self.collaboration_open {
+            egui::Panel::left("sidebar")
+                .resizable(false)
+                .exact_size(232.0)
+                .show(ui, |ui| {
+                    side = sidebar::show(ui, &self.sessions, self.selected, self.in_overview, self.collaboration_open, &self.config.theme);
+                });
+        }
         if side.toggle_overview {
             self.in_overview = !self.in_overview;
             if !self.in_overview {
@@ -512,11 +514,12 @@ impl HubApp {
                     if let Err(e) = self.chat.refresh() { self.chat.error = Some(format!("{e:#}")); }
                 }
                 ui.ctx().request_repaint_after(Duration::from_millis(50));
-                if let Some(act) = collaboration::show(ui, &mut self.chat) {
+                if let Some(act) = collaboration::show(ui, &mut self.chat, &self.config.theme) {
                     let result = match act {
                         collaboration::Action::Close => { self.collaboration_open = false; Ok(()) },
                         collaboration::Action::New => { self.chat.draft = Some(collaboration::begin_draft(&self.sessions, self.selected)); Ok(()) },
                         collaboration::Action::Select(i) => self.chat.select(i),
+                        collaboration::Action::Delete(i) => self.chat.delete_round(i),
                         collaboration::Action::Send => self.chat.execute(),
                         collaboration::Action::Cancel => { self.chat.cancel_execution(); Ok(()) },
                         collaboration::Action::Handoff(id) => self.chat.handoff(&id),
@@ -595,7 +598,7 @@ impl HubApp {
         if self.show_settings {
             self.settings_dialog(ui);
         }
-        collaboration::new_round_modal(ui, &mut self.chat);
+        collaboration::new_round_modal(ui, &mut self.chat, &self.config.theme);
 
         match action {
             Some(terminal::TerminalAction::NewTab) => self.spawn_tab(self.selected),
