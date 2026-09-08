@@ -427,17 +427,18 @@ fn draw_chat_search_bar(
         icon_color,
     );
 
-    let inner_alpha = ((expand_factor - 0.15) / 0.85).clamp(0.0, 1.0);
-    if inner_alpha > 0.01 {
-        let inner_rect = Rect::from_min_max(
-            Pos2::new(search_rect.min.x + 34.0, search_rect.min.y),
-            Pos2::new(search_rect.max.x - 6.0, search_rect.max.y),
-        );
+    let inner_alpha = ((expand_factor - 0.35) / 0.65).clamp(0.0, 1.0);
+    let inner_rect = Rect::from_min_max(
+        Pos2::new(search_rect.min.x + 34.0, search_rect.min.y),
+        Pos2::new(search_rect.max.x - 6.0, search_rect.max.y),
+    );
+    if inner_alpha > 0.01 && inner_rect.width() > 80.0 {
         let mut child_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(inner_rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
+        child_ui.set_clip_rect(search_rect);
         child_ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
 
         let text_sub = if dark { Color32::from_gray(210) } else { Color32::from_gray(70) };
@@ -456,8 +457,9 @@ fn draw_chat_search_bar(
                 .max_rect(input_rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
+        input_ui.set_clip_rect(search_rect);
 
-        let text_color = if dark { Color32::WHITE } else { Color32::BLACK };
+        let text_color = (if dark { Color32::WHITE } else { Color32::BLACK }).gamma_multiply(inner_alpha);
         let mut query = state.search_state.query.clone();
         let edit_resp = input_ui.add(
             egui::TextEdit::singleline(&mut query)

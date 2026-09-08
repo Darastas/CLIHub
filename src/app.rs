@@ -424,14 +424,12 @@ impl HubApp {
     }
 
     fn update_ui(&mut self, ui: &mut egui::Ui) {
-        // 全局快捷键：Esc 退出看板（单会话全景返回全局全景，全局全景退出看板）
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            if self.in_overview {
-                if self.overview_session.is_some() {
-                    self.overview_session = None;
-                } else {
-                    self.in_overview = false;
-                }
+        // 全局快捷键：仅在看板模式下，Esc 退出看板（单会话全景返回全局全景，全局全景退出看板）
+        if self.in_overview && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if self.overview_session.is_some() {
+                self.overview_session = None;
+            } else {
+                self.in_overview = false;
             }
         }
 
