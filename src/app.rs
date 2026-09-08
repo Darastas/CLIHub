@@ -10,10 +10,11 @@ use crate::backend::notification::{NotificationAction, NotificationService};
 use crate::backend::pty::PtyHandle;
 use crate::backend::sleep_inhibitor::SleepInhibitor;
 use crate::backend::terminal::{Terminal, TerminalEvent};
+use crate::collab::workflows::ChatState;
 use crate::config::{AppConfig, CliEntry, NotificationSettings, ThemeSettings};
 use crate::fonts::{app_visuals, setup_fonts};
 use crate::state::{Session, SessionStatus, TerminalInstance};
-use crate::ui::{sidebar, terminal, titlebar};
+use crate::ui::{collaboration, sidebar, terminal, titlebar};
 
 pub struct HubApp {
     config: AppConfig,
@@ -41,6 +42,8 @@ pub struct HubApp {
     egui_ctx: Option<egui::Context>,
     last_grid_cols: u16,
     last_grid_rows: u16,
+    collaboration_open: bool,
+    chat: ChatState,
 }
 
 fn home_dir() -> PathBuf {
@@ -61,6 +64,8 @@ impl HubApp {
 
         let initial_theme = config.theme.clone();
         let initial_notification = config.notification.clone();
+        let room = directories::ProjectDirs::from("", "CLIHub", "CLIHub").map(|d| d.config_dir().join("collaboration")).unwrap_or_else(|| PathBuf::from(".clihub-collaboration"));
+        let chat = ChatState::new(room);
         let sessions: Vec<Session> = config
             .clis
             .iter()
@@ -96,6 +101,8 @@ impl HubApp {
             egui_ctx: Some(cc.egui_ctx.clone()),
             last_grid_cols: 120,
             last_grid_rows: 35,
+            collaboration_open: std::env::args().any(|arg| arg == "--agent-chat"),
+            chat,
         };
         // 自动为默认终端会话开第一个标签页，验证链路
         if let Some(i) = app.find_terminal_index() {
@@ -246,6 +253,12 @@ impl HubApp {
 
     /// 后台数据更新：遍历 会话 → 标签页，拉取 PTY 输出喂进终端、检测退出与通知。禁止绘制。
     fn update_backend(&mut self, ctx: &Context) {
+        if self.chat.is_running() {
+            ctx.request_repaint_after(Duration::from_millis(100));
+            if !self.collaboration_open && self.chat.last_refresh.elapsed() >= Duration::from_millis(500) {
+                if let Err(e) = self.chat.refresh() { self.chat.error = Some(format!("{e:#}")); }
+            }
+        }
         // 1) 响应用户点击系统 Toast 后的激活唤醒请求
         while let Ok(action) = self.notification_service.receiver().try_recv() {
             match action {
@@ -429,6 +442,7 @@ impl HubApp {
                 self.overview_session = None;
             }
         }
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::A)) { self.collaboration_open = !self.collaboration_open; }
 
         // 自定义无边框标题栏（占用顶部，面板自动下移）
         if titlebar::show(ui) {
@@ -441,7 +455,7 @@ impl HubApp {
             .resizable(false)
             .exact_size(232.0)
             .show(ui, |ui| {
-                side = sidebar::show(ui, &self.sessions, self.selected, self.in_overview, &self.config.theme);
+                side = sidebar::show(ui, &self.sessions, self.selected, self.in_overview, self.collaboration_open, &self.config.theme);
             });
         if side.toggle_overview {
             self.in_overview = !self.in_overview;
@@ -475,6 +489,8 @@ impl HubApp {
             self.settings_draft = self.config.theme.clone();
             self.show_settings = true;
         }
+        if side.agent_chat { self.collaboration_open = true; }
+        if side.select.is_some() || side.toggle_overview { self.collaboration_open = false; }
         if let Some(idx) = side.edit {
             if let Some(s) = self.sessions.get(idx) {
                 self.editing_cli = Some(idx);
@@ -486,11 +502,28 @@ impl HubApp {
 
         let mut action = None;
         // 弹窗打开时禁止键盘转发（避免输入串进终端）
-        let input_enabled = !self.adding_cli && self.editing_cli.is_none() && !self.show_settings;
+        let input_enabled = !self.adding_cli && self.editing_cli.is_none() && !self.show_settings && self.chat.draft.is_none();
         // 终端主题（按配置构建一次）
         let theme = self.build_theme();
         egui::CentralPanel::default_margins().show(ui, |ui| {
-            if self.in_overview {
+            if self.collaboration_open {
+                self.chat.theme = self.build_theme();
+                if self.chat.last_refresh.elapsed() >= Duration::from_millis(50) {
+                    if let Err(e) = self.chat.refresh() { self.chat.error = Some(format!("{e:#}")); }
+                }
+                ui.ctx().request_repaint_after(Duration::from_millis(50));
+                if let Some(act) = collaboration::show(ui, &mut self.chat) {
+                    let result = match act {
+                        collaboration::Action::Close => { self.collaboration_open = false; Ok(()) },
+                        collaboration::Action::New => { self.chat.draft = Some(collaboration::begin_draft(&self.sessions, self.selected)); Ok(()) },
+                        collaboration::Action::Select(i) => self.chat.select(i),
+                        collaboration::Action::Send => self.chat.execute(),
+                        collaboration::Action::Cancel => { self.chat.cancel_execution(); Ok(()) },
+                        collaboration::Action::Handoff(id) => self.chat.handoff(&id),
+                    };
+                    self.chat.error = result.err().map(|e| format!("{e:#}"));
+                }
+            } else if self.in_overview {
                 if let Some(ov_act) = crate::ui::overview::show(ui, &self.sessions, self.overview_session, &self.config.theme, &theme) {
                     match ov_act {
                         crate::ui::overview::OverviewAction::SelectSessionTab { session_idx, tab_idx } => {
@@ -562,6 +595,7 @@ impl HubApp {
         if self.show_settings {
             self.settings_dialog(ui);
         }
+        collaboration::new_round_modal(ui, &mut self.chat);
 
         match action {
             Some(terminal::TerminalAction::NewTab) => self.spawn_tab(self.selected),

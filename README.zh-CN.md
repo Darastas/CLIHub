@@ -85,6 +85,25 @@ CLIHub 就是为了解决这一痛点而生：
 | 图像多模态处理 | `image` 0.25 (PNG, JPEG, WebP, BMP, GIF, ICO, TIFF) |
 | 系统底层工程化 | Win32 Job Objects 进程树回收、`SetThreadExecutionState` 防休眠、`GetUserDefaultLocaleName` |
 
+### Agent Chat（基础工作流）
+
+左下角 **Agent Chat** 打开聊天页面，点击 **新建工作流** 填写名称、目标和工作目录，勾选现有 Workspaces 中的 AI，为每个参与者选择或填写职责。工作流分别保存，顶部下拉框可切换历史工作流。
+
+消息输入框支持选择首位执行者、发送和回复。发送一次任务后，在所选工作目录通过 Windows ConPTY 启动真实 Codex 或 Claude 交互进程，使用 CLIHub 的 Alacritty 状态机和 egui 界面渲染终端（不是嵌入 Windows Terminal 窗口），传入任务文件路径。任务文件包含职责、原始任务、目标、最近 20 条消息及信箱交接协议。Agent 通过信箱工具确认接收并提交结果，随后自动交给下一位，直到一轮的最后一位 AI 明确确认最终任务完成。终端按参与者并排显示，支持滚动、选取复制和聚焦输入；底部聊天可折叠，保留任务、交接和结果。顶部项目选项旁显示职责。终端和协作使用同一个进程，沿用本机 CLI 登录和权限配置；首次信任或工具权限提示需要在对应终端处理。未适配的 CLI 无法在新工作流中勾选。
+
+桌面程序是 `target/release/clihub.exe`；`clihub-agent.exe` 是配套信箱工具，不是聊天窗口。可用 `clihub.exe --agent-chat` 直接打开聊天页面。
+
+```powershell
+# 从页面复制信箱目录；参与者 ID 可用 list 查看
+.\clihub-agent.exe list --room '信箱目录'
+.\clihub-agent.exe inbox --room '信箱目录' --agent '参与者ID'
+.\clihub-agent.exe send --room '信箱目录' --from '参与者ID' --to 'user' --body-file 'reply.txt'
+```
+
+工作流保存在用户配置目录 `CLIHub/collaboration`，每个工作流包含独立消息和参与者配置。启动任务时进入开发阶段，AI 确认完成后自动更新为完成。自动协作没有次数上限，也没有单次执行超时；可以手动取消，实际执行错误会停止协作并显示错误。完成状态依据 AI 的明确确认，不代表软件独立验证了任务成果。每次交接启动独立 CLI 进程；提交回复后结束该进程，保留本次终端画面。下次轮到同一角色时替换该终端。界面展示 CLI 公开的输出和思考摘要，不能获取模型未公开的内部推理。自定义 Shell 组合命令尚不支持，使用 `codex`、`claude` 或受支持 CLI 的完整路径。
+
+本机验收（2026-09-07）：两个独立 Codex 角色经工作流发送、返回、交接、再次返回已通过。Claude CLI 能返回 JSON，但使用标准输入、参数及结构化输入时均返回固定问候，没有遵守测试任务；Claude 适配的业务验收尚未通过。
+
 ### 构建与运行
 
 需要安装 Rust 工具链 (`rustup` / `cargo`)。
