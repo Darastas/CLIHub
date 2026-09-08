@@ -99,9 +99,48 @@ impl ChatState {
         self.rounds
             .sort_by_key(|(_, r)| std::cmp::Reverse(r.created));
         if !self.rounds.is_empty() {
-            self.select(0)?;
+            self.active = Some(0);
+            let (_, r) = &self.rounds[0];
+            self.recipient = r
+                .participants
+                .iter()
+                .find(|p| p.id != "user")
+                .map(|p| p.id.clone())
+                .unwrap_or_default();
+            self.refresh()?;
         }
         Ok(())
+    }
+
+    /// 确保当前选中的工作流成员默认处于交互终端就绪状态
+    pub fn ensure_current_runs_open(&mut self) {
+        if !self.native_mode {
+            return;
+        }
+        let Some(i) = self.active else {
+            return;
+        };
+        let Some((dir, r)) = self.rounds.get(i) else {
+            return;
+        };
+        if let Ok(members_data) = fs::read(dir.join("members.json")) {
+            if let Ok(members) = serde_json::from_slice::<Vec<MemberDraft>>(&members_data) {
+                for m in members {
+                    if !self.native_runs.iter().any(|run| run.round == r.id && run.agent == m.id) {
+                        let run = super::native::NativeRun::open_interactive(
+                            &m.command,
+                            &r.repo,
+                            dir,
+                            &r.id,
+                            &m.id,
+                            &m.name,
+                            &self.theme,
+                        );
+                        self.native_runs.push(run);
+                    }
+                }
+            }
+        }
     }
 
     pub fn select(&mut self, index: usize) -> Result<()> {
@@ -115,6 +154,7 @@ impl ChatState {
         self.active = Some(index);
         self.reply = None;
         self.body.clear();
+        self.ensure_current_runs_open();
         self.refresh()
     }
 
@@ -131,12 +171,15 @@ impl ChatState {
         if index >= self.rounds.len() {
             return Ok(());
         }
-        let (dir, _) = self.rounds.remove(index);
+        let (dir, round) = self.rounds.remove(index);
         let _ = fs::remove_dir_all(&dir);
+        for run in self.native_runs.iter_mut().filter(|r| r.round == round.id) {
+            run.stop();
+        }
+        self.native_runs.retain(|r| r.round != round.id);
         if self.rounds.is_empty() {
             self.active = None;
             self.messages.clear();
-            self.native_runs.clear();
             self.recipient.clear();
         } else {
             let next_idx = index.min(self.rounds.len() - 1);
@@ -205,6 +248,7 @@ impl ChatState {
         self.rounds.insert(0, (dir, round));
         self.select(0)?;
         self.draft = None;
+        self.ensure_current_runs_open();
         Ok(())
     }
 
@@ -302,9 +346,17 @@ impl ChatState {
         prompt.push_str(&format!("\n## 本次输入与交接指令\n{}\n", instruction));
         Store::new(dir)?.send(Message { id: request_id.clone(), round: round.id.clone(), from, to: member.id.clone(), body: instruction, reply_to: reply, anchor: None, snapshot: None, time: Store::now() })?;
         if self.native_mode {
-            let native = super::native::NativeRun::start(&member.command, &round.repo, dir, &round.id, &member.id, &member.name, &request_id, prompt, &self.theme)?;
-            self.native_runs.retain(|r| r.round != round.id || r.agent != member.id);
-            self.native_runs.push(native);
+            let mut dispatched = false;
+            if let Some(existing) = self.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == member.id) {
+                if existing.dispatch(&member.command, &round.repo, dir, &request_id, prompt.clone()).is_ok() {
+                    dispatched = true;
+                }
+            }
+            if !dispatched {
+                let native = super::native::NativeRun::start(&member.command, &round.repo, dir, &round.id, &member.id, &member.name, &request_id, prompt, &self.theme)?;
+                self.native_runs.retain(|r| r.round != round.id || r.agent != member.id);
+                self.native_runs.push(native);
+            }
         } else {
             self.running = Some(super::runner::start(&member.command, &round.repo, prompt)?);
         }
@@ -367,20 +419,46 @@ impl ChatState {
     }
 
     fn poll_native(&mut self) -> Result<()> {
-        let Some((dir, round, agent, _)) = self.run_context.clone() else { return Ok(()); };
-        let run = self.native_runs.iter_mut().find(|r| r.round == round && r.agent == agent).context("终端执行上下文丢失")?;
-        let response = match run.poll() {
-            Ok(Some(response)) => response,
-            Ok(None) => return Ok(()),
-            Err(error) => {
-                run.stop(); run.status = "执行失败".into();
-                self.automation = None; self.run_context = None;
-                self.execution_status = "协作中断".into();
-                return Err(error);
+        let mut active_response = None;
+        let mut run_error = None;
+        let running_target = self.run_context.as_ref().map(|(_, r, a, _)| (r.clone(), a.clone()));
+
+        for run in &mut self.native_runs {
+            match run.poll() {
+                Ok(Some(resp)) => {
+                    if let Some((r, a)) = &running_target {
+                        if &run.round == r && &run.agent == a {
+                            active_response = Some(resp);
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    if let Some((r, a)) = &running_target {
+                        if &run.round == r && &run.agent == a {
+                            run_error = Some((run.round.clone(), run.agent.clone(), err));
+                        }
+                    }
+                }
             }
-        };
-        run.stop(); run.status = "已提交结果".into();
-        self.run_context = None;
+        }
+
+        if let Some((r_id, a_id, error)) = run_error {
+            if let Some(run) = self.native_runs.iter_mut().find(|r| r.round == r_id && r.agent == a_id) {
+                run.status = "执行失败".into();
+            }
+            self.automation = None;
+            self.run_context = None;
+            self.execution_status = "协作中断".into();
+            return Err(error);
+        }
+
+        let Some(response) = active_response else { return Ok(()); };
+        let (dir, round, agent, _) = self.run_context.take().context("执行上下文丢失")?;
+        if let Some(run) = self.native_runs.iter_mut().find(|r| r.round == round && r.agent == agent) {
+            run.request.clear();
+            run.status = "就绪 · 可交互".into();
+        }
         if let Some(auto) = &mut self.automation {
             auto.step += 1;
             if workflow_complete(&response.body, auto.step, auto.members.len()) {
@@ -487,6 +565,7 @@ mod tests {
     fn selected_agents_roles_messages_and_multiple_rounds_survive_restart() {
         let root = std::env::temp_dir().join(Store::new_id("workflow-test"));
         let mut chat = ChatState::new(root.clone());
+        chat.native_mode = false;
         let make = |title: &str| Draft {
             title: title.into(),
             goal: "Review changes".into(),
@@ -522,6 +601,7 @@ mod tests {
         chat.create().unwrap();
         assert!(chat.messages.is_empty());
         let mut restored = ChatState::new(root.clone());
+        restored.native_mode = false;
         assert!(restored.error.is_none());
         assert_eq!(restored.rounds.len(), 2);
         let first = restored
@@ -533,7 +613,13 @@ mod tests {
         assert_eq!(restored.messages.len(), 1);
         assert_eq!(restored.messages[0].to, "codex");
         assert_eq!(restored.rounds[first].1.phase, Phase::Review);
-        fs::remove_dir_all(root).unwrap();
+        for run in &mut chat.native_runs {
+            run.stop();
+        }
+        for run in &mut restored.native_runs {
+            run.stop();
+        }
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

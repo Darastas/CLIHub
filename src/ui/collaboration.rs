@@ -17,6 +17,7 @@ pub enum Action {
     Close,
 }
 
+#[allow(dead_code)]
 fn phase_name(p: &Phase) -> &'static str {
     match p {
         Phase::Development => "开发",
@@ -65,6 +66,7 @@ pub enum ToolIcon {
     Close,
     Plus,
     ChevronLeft,
+    #[allow(dead_code)]
     ChevronDown,
     ArrowRight,
     Reply,
@@ -586,11 +588,15 @@ fn draw_terminal_card(
     let (dot_c, status_text, status_c) = if let Some(r) = &run {
         if r.status.contains("失败") {
             (Color32::from_rgb(239, 68, 68), r.status.clone(), Color32::from_rgb(239, 68, 68))
+        } else if r.status.contains("就绪") || r.status.contains("交互") {
+            (Color32::from_rgb(34, 197, 94), r.status.clone(), Color32::from_rgb(34, 197, 94))
+        } else if r.status.contains("退出") {
+            (Color32::from_rgb(156, 163, 175), r.status.clone(), Color32::from_rgb(156, 163, 175))
         } else {
-            (Color32::from_rgb(16, 185, 129), r.status.clone(), Color32::from_rgb(16, 185, 129))
+            (Color32::from_rgb(59, 130, 246), r.status.clone(), Color32::from_rgb(59, 130, 246))
         }
     } else {
-        (Color32::from_rgb(59, 130, 246), "● 等待任务".to_string(), weak)
+        (Color32::from_rgb(100, 116, 139), "● 未启动".to_string(), weak)
     };
     p.circle_filled(Pos2::new(titlebar_rect.min.x + 14.0, titlebar_rect.center().y), 3.5, dot_c);
 
@@ -633,6 +639,7 @@ fn draw_terminal_card(
             .id_salt(("agent_term_body", round_id, &member.id))
             .max_rect(body_rect),
     );
+    body_ui.set_clip_rect(body_rect);
 
     if let Some(run) = run {
         crate::ui::terminal::show_embedded(&mut body_ui, &mut run.session, state.draft.is_none(), &state.theme);
@@ -686,12 +693,18 @@ fn draw_sunken_composer(
     let dark = ui.visuals().dark_mode;
     let p = ui.painter();
 
-    // 顶部发丝分隔线
-    let border_c = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
-    p.line_segment([footer_rect.left_top(), footer_rect.right_top()], Stroke::new(0.5, border_c));
+    // 底部控制栏底色与顶部发丝分隔线（坚固底栏，彻底杜绝下方透底与字符穿模）
+    let footer_bg = if dark {
+        Color32::from_rgb(16, 17, 21)
+    } else {
+        Color32::from_rgb(243, 244, 247)
+    };
+    p.rect_filled(footer_rect, 0.0, footer_bg);
+    let border_c = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) };
+    p.line_segment([footer_rect.left_top(), footer_rect.right_top()], Stroke::new(0.6, border_c));
 
     // 阴刻内凹槽体外框（居中，42px 高度，12.0 圆角）
-    let trench_margin_x = 10.0;
+    let trench_margin_x = 12.0;
     let trench_h = 42.0;
     let trench_y = footer_rect.center().y - trench_h * 0.5;
     let trench_rect = Rect::from_min_max(
@@ -1015,17 +1028,16 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
     }
 
     let header_h = 42.0;
-    let footer_h = 54.0;
-    let content_h = (main_rect.height() - header_h - footer_h).max(0.0);
+    let footer_h = 58.0;
 
     let header_rect = Rect::from_min_size(main_rect.min, vec2(main_rect.width(), header_h));
-    let content_rect = Rect::from_min_max(
-        Pos2::new(main_rect.min.x, main_rect.min.y + header_h),
-        Pos2::new(main_rect.max.x, main_rect.min.y + header_h + content_h),
-    );
     let footer_rect = Rect::from_min_max(
-        Pos2::new(main_rect.min.x, main_rect.min.y + header_h + content_h),
+        Pos2::new(main_rect.min.x, main_rect.max.y - footer_h),
         main_rect.max,
+    );
+    let content_rect = Rect::from_min_max(
+        Pos2::new(main_rect.min.x, header_rect.max.y),
+        Pos2::new(main_rect.max.x, footer_rect.min.y),
     );
 
     // 1. 顶部操作栏（包含项目标题、阶段徽章、工作目录、目标提示、角色标签及协作消息展开按键）
@@ -1116,27 +1128,40 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
         (content_rect, None)
     };
 
+    let card_pad_x = 10.0;
+    let card_pad_y = 10.0;
+    let cards_area = term_rect.shrink2(vec2(card_pad_x, card_pad_y));
+
     let members: Vec<_> = round.participants.iter().filter(|p| p.id != "user").collect();
-    let mut terminal_ui = ui.new_child(egui::UiBuilder::new().id_salt(("agents", &round.id)).max_rect(term_rect));
+    let mut terminal_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(("agents", &round.id))
+            .max_rect(cards_area),
+    );
+    terminal_ui.set_clip_rect(cards_area);
+
     let n = members.len().max(1);
     egui::ScrollArea::horizontal()
         .id_salt(("terminal_columns", &round.id))
         .auto_shrink([false, false])
         .show(&mut terminal_ui, |ui| {
             ui.horizontal(|ui| {
-                let col_spacing = 8.0;
-                let width = ((term_rect.width() - col_spacing * (n - 1) as f32) / n as f32).max(280.0);
+                let col_spacing = 10.0;
+                let card_h = cards_area.height();
+                let width = ((cards_area.width() - col_spacing * (n - 1) as f32) / n as f32).max(320.0);
                 for member in &members {
-                    let (card_rect, _) = ui.allocate_exact_size(vec2(width, term_rect.height()), Sense::hover());
+                    let (card_rect, _) = ui.allocate_exact_size(vec2(width, card_h), Sense::hover());
                     draw_terminal_card(ui, state, &round.id, member, card_rect, custom_color);
                 }
             });
         });
 
     if let Some(d_rect) = drawer_rect {
+        let d_area = d_rect.shrink2(vec2(0.0, 10.0));
         let border = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) };
         let fill = if dark { Color32::from_rgb(22, 23, 27) } else { Color32::from_rgb(246, 247, 249) };
-        let mut drawer_ui = ui.new_child(egui::UiBuilder::new().id_salt("conversation_drawer").max_rect(d_rect));
+        let mut drawer_ui = ui.new_child(egui::UiBuilder::new().id_salt("conversation_drawer").max_rect(d_area));
+        drawer_ui.set_clip_rect(d_area);
         egui::Frame::NONE
             .fill(fill)
             .corner_radius(8)
@@ -1602,9 +1627,14 @@ mod tests {
     fn chat_and_creation_dialog_render_at_supported_window_sizes() {
         let root = std::env::temp_dir().join(Store::new_id("chat-layout"));
         let mut state = ChatState::new(root.clone());
+        state.native_mode = false;
         let sessions = vec![
             Session::new(3, "Codex", "codex", root.clone()),
             Session::new(8, "Claude Code", "claude", root.clone()),
+            Session::new(10, "Antigravity", "agy", root.clone()),
+            Session::new(11, "Opencode", "opencode", root.clone()),
+            Session::new(12, "Oh My Pi", "omp", root.clone()),
+            Session::new(13, "Mimo", "mimo", root.clone()),
         ];
         let mut draft = begin_draft(&sessions, 0);
         draft.title = "Development and review".into();
@@ -1656,6 +1686,9 @@ mod tests {
             assert!(!output.shapes.is_empty());
             state.draft = None;
         }
-        std::fs::remove_dir_all(root).unwrap();
+        for run in &mut state.native_runs {
+            run.stop();
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 }

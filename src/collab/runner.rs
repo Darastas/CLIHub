@@ -21,6 +21,13 @@ use crate::backend::process_guard::ProcessJobGuard;
 pub enum Kind {
     Codex,
     Claude,
+    Antigravity,
+    Opencode,
+    OhMyPi,
+    Mimo,
+    Aider,
+    Gemini,
+    Generic,
 }
 
 pub struct Run {
@@ -41,33 +48,51 @@ impl Drop for Run {
 }
 
 fn command_path(command: &str) -> Result<PathBuf> {
-    let command = command.trim();
-    let command = command
+    let trimmed = command.trim();
+    let unquoted = trimmed
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or(command);
-    if command == "codex" || command == "claude" {
-        return Ok(PathBuf::from(command));
+        .unwrap_or(trimmed);
+
+    let path = PathBuf::from(unquoted);
+    if path.is_file() {
+        return Ok(path);
     }
-    let path = PathBuf::from(command);
-    if !path.is_absolute() || !path.is_file() {
-        bail!("仅支持 codex、claude 或 CLI 可执行文件的完整路径，不支持附加参数和 Shell 命令");
+
+    if unquoted.contains(['&', '|', ';']) || unquoted.contains(char::is_whitespace) {
+        bail!("不支持附加参数或 Shell 组合命令，仅支持 CLI 名称或可执行文件的完整路径");
     }
-    Ok(path)
+
+    let base_lower = unquoted.to_ascii_lowercase();
+    let known_names = [
+        "codex", "claude", "agy", "antigravity", "opencode", "opencode2",
+        "omp", "oh-my-pi", "mimo", "mimocode", "aider", "gemini",
+    ];
+    if known_names.contains(&base_lower.as_str()) || find_on_path(unquoted).is_some() {
+        return Ok(PathBuf::from(unquoted));
+    }
+
+    bail!("未找到 CLI 命令或可执行文件：{}。请确认已安装到 PATH 或配置完整路径", command);
 }
 
 pub fn detect(command: &str) -> Result<Kind> {
     let path = command_path(command)?;
-    match path
-        .file_name()
+    let file_stem = path
+        .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "codex" | "codex.exe" | "codex.cmd" | "codex.ps1" => Ok(Kind::Codex),
-        "claude" | "claude.exe" | "claude.cmd" | "claude.ps1" => Ok(Kind::Claude),
-        _ => bail!("当前协作仅支持 Codex 和 Claude CLI"),
+        .to_ascii_lowercase();
+
+    match file_stem.as_str() {
+        "codex" => Ok(Kind::Codex),
+        "claude" => Ok(Kind::Claude),
+        "agy" | "antigravity" => Ok(Kind::Antigravity),
+        "opencode" | "opencode2" => Ok(Kind::Opencode),
+        "omp" | "oh-my-pi" => Ok(Kind::OhMyPi),
+        "mimo" | "mimocode" => Ok(Kind::Mimo),
+        "aider" => Ok(Kind::Aider),
+        "gemini" => Ok(Kind::Gemini),
+        _ => Ok(Kind::Generic),
     }
 }
 
@@ -103,6 +128,13 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
     let name = match kind {
         Kind::Codex => "codex",
         Kind::Claude => "claude",
+        Kind::Antigravity => "agy",
+        Kind::Opencode => "opencode",
+        Kind::OhMyPi => "omp",
+        Kind::Mimo => "mimo",
+        Kind::Aider => "aider",
+        Kind::Gemini => "gemini",
+        Kind::Generic => path.file_stem().and_then(|s| s.to_str()).unwrap_or("cli"),
     };
     let adjacent = dir.join(format!("{name}.exe"));
     if adjacent.is_file() {
@@ -153,7 +185,45 @@ fn executable(path: PathBuf, kind: Kind) -> Result<(PathBuf, Vec<OsString>)> {
                 return Ok((native, Vec::new()));
             }
         }
+        Kind::Opencode => {
+            for cand in [
+                dir.join("node_modules/opencode-ai/bin/opencode.exe"),
+                dir.join("node_modules/@opencode-ai/cli/bin/opencode.exe"),
+            ] {
+                if cand.is_file() {
+                    return Ok((cand, Vec::new()));
+                }
+            }
+        }
+        Kind::Mimo => {
+            let script = dir.join("node_modules/@mimo-ai/cli/bin/mimo");
+            if script.is_file() {
+                let local_node = dir.join("node.exe");
+                let node = if local_node.is_file() {
+                    local_node
+                } else {
+                    find_on_path("node")
+                        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")))
+                        .unwrap_or_else(|| PathBuf::from("node.exe"))
+                };
+                return Ok((node, vec![script.into_os_string()]));
+            }
+        }
+        _ => {}
     }
+
+    #[cfg(windows)]
+    {
+        let cmd_path = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd")) {
+            path.clone()
+        } else {
+            path.with_extension("cmd")
+        };
+        if cmd_path.is_file() {
+            return Ok((PathBuf::from("cmd.exe"), vec!["/C".into(), cmd_path.into_os_string()]));
+        }
+    }
+
     bail!(
         "无法从 {} 定位受支持的 CLI 入口，请配置原生可执行文件路径",
         path.display()
@@ -269,6 +339,27 @@ fn execute(
         Kind::Claude => {
             command.args(["-p", "--output-format", "json"]);
         }
+        Kind::Antigravity => {
+            command.args(["-p", "--output-format", "text", &prompt]);
+        }
+        Kind::Opencode => {
+            command.args(["run", &prompt]);
+        }
+        Kind::OhMyPi => {
+            command.args(["-p", &prompt]);
+        }
+        Kind::Mimo => {
+            command.args(["run", &prompt]);
+        }
+        Kind::Aider => {
+            command.args(["--message", &prompt]);
+        }
+        Kind::Gemini => {
+            command.args(["-p", &prompt]);
+        }
+        Kind::Generic => {
+            command.arg(&prompt);
+        }
     }
     hidden(&mut command);
     let mut child = command.spawn().context("启动 CLI 失败")?;
@@ -324,13 +415,13 @@ fn diagnostic(text: &str) -> String {
 }
 
 fn parse_output(kind: Kind, output: &str) -> Result<String> {
-    let events = serde_json::Deserializer::from_str(output.trim_start_matches('\u{feff}'))
-        .into_iter::<Value>();
-    let mut answer = String::new();
-    for event in events {
-        let event = event.context("CLI 返回了无效的 JSON")?;
-        match kind {
-            Kind::Codex => {
+    match kind {
+        Kind::Codex => {
+            let events = serde_json::Deserializer::from_str(output.trim_start_matches('\u{feff}'))
+                .into_iter::<Value>();
+            let mut answer = String::new();
+            for event in events {
+                let event = event.context("CLI 返回了无效的 JSON")?;
                 let event_type = event["type"].as_str().unwrap_or_default();
                 if matches!(event_type, "error" | "turn.failed") {
                     bail!("Codex 执行失败：{}", diagnostic(&event.to_string()));
@@ -344,7 +435,17 @@ fn parse_output(kind: Kind, output: &str) -> Result<String> {
                     }
                 }
             }
-            Kind::Claude => {
+            if answer.trim().is_empty() {
+                bail!("CLI 没有返回最终文本回复");
+            }
+            Ok(answer)
+        }
+        Kind::Claude => {
+            let events = serde_json::Deserializer::from_str(output.trim_start_matches('\u{feff}'))
+                .into_iter::<Value>();
+            let mut answer = String::new();
+            for event in events {
+                let event = event.context("CLI 返回了无效的 JSON")?;
                 if event["permission_denials"].as_array().is_some_and(|items| !items.is_empty()) {
                     bail!("Claude 请求的工具权限被拒绝，任务未完整执行：{}", diagnostic(&event["permission_denials"].to_string()));
                 }
@@ -360,12 +461,19 @@ fn parse_output(kind: Kind, output: &str) -> Result<String> {
                     answer = result.to_owned();
                 }
             }
+            if answer.trim().is_empty() {
+                bail!("CLI 没有返回最终文本回复");
+            }
+            Ok(answer)
+        }
+        _ => {
+            let text = output.trim();
+            if text.is_empty() {
+                bail!("CLI 没有返回最终文本回复");
+            }
+            Ok(text.to_owned())
         }
     }
-    if answer.trim().is_empty() {
-        bail!("CLI 没有返回最终文本回复");
-    }
-    Ok(answer)
 }
 
 #[cfg(test)]
@@ -446,9 +554,17 @@ mod tests {
     fn rejects_missing_answers_and_shell_commands() {
         assert!(parse_output(Kind::Codex, "").is_err());
         assert!(parse_output(Kind::Claude, "{}").is_err());
+        assert!(parse_output(Kind::Antigravity, "").is_err());
+        assert!(parse_output(Kind::Opencode, "   ").is_err());
+        assert_eq!(parse_output(Kind::Antigravity, "完成任务").unwrap(), "完成任务");
         assert!(detect("codex --yolo").is_err());
         assert!(detect("claude && echo secret").is_err());
         assert_eq!(detect("codex").unwrap(), Kind::Codex);
+        assert_eq!(detect("claude").unwrap(), Kind::Claude);
+        assert_eq!(detect("agy").unwrap(), Kind::Antigravity);
+        assert_eq!(detect("opencode").unwrap(), Kind::Opencode);
+        assert_eq!(detect("omp").unwrap(), Kind::OhMyPi);
+        assert_eq!(detect("mimo").unwrap(), Kind::Mimo);
     }
 
     #[test]
