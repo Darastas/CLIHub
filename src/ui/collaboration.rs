@@ -5,7 +5,7 @@ use crate::{
     },
     state::Session,
 };
-use egui::{Color32, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
+use egui::{Align2, Color32, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
 
 pub enum Action {
     New,
@@ -292,27 +292,426 @@ fn icon_pill_button(
 }
 
 fn draw_phase_badge(ui: &mut Ui, phase: &Phase) {
-    let name = match phase {
-        Phase::Development => "开发",
-        Phase::Review => "审查",
-        Phase::Fix => "修复",
-        Phase::Completed => "完成",
+    let (name, bg, border) = match phase {
+        Phase::Development => ("开发", Color32::from_rgba_unmultiplied(59, 130, 246, 25), Color32::from_rgba_unmultiplied(59, 130, 246, 65)),
+        Phase::Review => ("审查", Color32::from_rgba_unmultiplied(245, 158, 11, 25), Color32::from_rgba_unmultiplied(245, 158, 11, 65)),
+        Phase::Fix => ("修复", Color32::from_rgba_unmultiplied(239, 68, 68, 25), Color32::from_rgba_unmultiplied(239, 68, 68, 65)),
+        Phase::Completed => ("完成", Color32::from_rgba_unmultiplied(34, 197, 94, 25), Color32::from_rgba_unmultiplied(34, 197, 94, 65)),
     };
-    chip_badge(ui, name);
+    let dark = ui.visuals().dark_mode;
+    let font = FontId::new(12.0, egui::FontFamily::Proportional);
+    let text_w = ui.painter().layout_no_wrap(name.to_string(), font.clone(), Color32::WHITE).size().x;
+    let (rect, _) = ui.allocate_exact_size(vec2(text_w + 16.0, 24.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect.translate(vec2(0.0, 1.0)), 6.0, Color32::from_black_alpha(if dark { 40 } else { 12 }));
+    p.rect_filled(rect, 6.0, bg);
+    p.rect_stroke(rect, 6.0, Stroke::new(0.5, border), egui::StrokeKind::Inside);
+    let fg = if dark { Color32::from_gray(230) } else { Color32::from_gray(30) };
+    p.text(rect.center(), Align2::CENTER_CENTER, name, font, fg);
 }
 
 fn chip_badge(ui: &mut Ui, text: &str) -> egui::Response {
     let dark = ui.visuals().dark_mode;
-    let font = egui::FontId::proportional(11.5);
-    let fg = if dark { Color32::from_gray(190) } else { Color32::from_gray(75) };
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font.clone(), fg);
-    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 12.0, 20.0), egui::Sense::hover());
-    let bg = if dark { Color32::from_white_alpha(7) } else { Color32::from_black_alpha(8) };
-    let border = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(10) };
-    ui.painter().rect_filled(rect, 4.0, bg);
-    ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(0.5, border), egui::StrokeKind::Inside);
-    ui.painter().galley(rect.center() - galley.size() * 0.5, galley, fg);
+    let font = FontId::new(12.0, egui::FontFamily::Proportional);
+    let fg = if dark { Color32::from_gray(210) } else { Color32::from_gray(70) };
+    let text_w = ui.painter().layout_no_wrap(text.to_string(), font.clone(), fg).size().x;
+    let (rect, resp) = ui.allocate_exact_size(vec2(text_w + 16.0, 24.0), Sense::hover());
+    let bg = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(8) };
+    let border = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(12) };
+    let p = ui.painter();
+    p.rect_filled(rect.translate(vec2(0.0, 1.0)), 6.0, Color32::from_black_alpha(if dark { 40 } else { 12 }));
+    p.rect_filled(rect, 6.0, bg);
+    p.rect_stroke(rect, 6.0, Stroke::new(0.5, border), egui::StrokeKind::Inside);
+    p.text(rect.center(), Align2::CENTER_CENTER, text, font, fg);
     resp
+}
+
+fn draw_chat_search_bar(
+    ui: &mut Ui,
+    state: &mut ChatState,
+    round: &crate::collab::Round,
+    dark: bool,
+) {
+    let is_search_open = state.search_state.is_open;
+    let active_agent = state.active_terminal_agent.clone().unwrap_or_default();
+
+    // 快捷键检测：Ctrl+F / Cmd+F 唤起或聚焦搜索栏
+    let is_ctrl_f = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    if is_ctrl_f {
+        state.search_state.is_open = true;
+        state.search_state.request_focus = true;
+    }
+
+    if is_search_open {
+        if let Some(r) = state.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == active_agent) {
+            if let Some(tab) = r.session.tabs.get_mut(r.session.active_tab) {
+                if tab.search_state.query != state.search_state.query || tab.search_state.case_sensitive != state.search_state.case_sensitive {
+                    tab.search_state.query = state.search_state.query.clone();
+                    tab.search_state.case_sensitive = state.search_state.case_sensitive;
+                    tab.search_state.is_open = !state.search_state.query.is_empty();
+                    if let Some(t) = &tab.terminal {
+                        tab.search_state.matches = if state.search_state.query.is_empty() {
+                            Vec::new()
+                        } else {
+                            t.search(&state.search_state.query, tab.search_state.case_sensitive)
+                        };
+                        tab.search_state.active_match = 0;
+                    }
+                }
+            }
+        }
+    } else if let Some(r) = state.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == active_agent) {
+        if let Some(tab) = r.session.tabs.get_mut(r.session.active_tab) {
+            if tab.search_state.is_open {
+                tab.search_state.is_open = false;
+                tab.search_state.matches.clear();
+            }
+        }
+    }
+
+    // 平滑展开动效，与终端内搜索栏完全一致（lerp 34px -> 340px，高度 34px）
+    let raw_expand_t = ui.ctx().animate_bool_with_time(Id::new(("chat_search_expand", &round.id)), is_search_open, 0.28);
+    let expand_factor = raw_expand_t * raw_expand_t * (3.0 - 2.0 * raw_expand_t);
+
+    let collapsed_w = 34.0;
+    let expanded_w = 340.0;
+    let current_w = egui::lerp(collapsed_w..=expanded_w, expand_factor);
+    let (search_rect, search_resp) = ui.allocate_exact_size(vec2(current_w, 34.0), Sense::click());
+
+    let is_hovered = search_resp.hovered() && !is_search_open;
+    let bar_hover_factor = ui.ctx().animate_bool(Id::new(("chat_search_hover", &round.id)), is_hovered);
+
+    fn lerp_c(a: Color32, b: Color32, t: f32) -> Color32 {
+        Color32::from_rgba_premultiplied(
+            (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).clamp(0.0, 255.0) as u8,
+            (a.a() as f32 * (1.0 - t) + b.a() as f32 * t).clamp(0.0, 255.0) as u8,
+        )
+    }
+
+    let base_color = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+    let hover_color = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+    let search_bg = lerp_c(base_color, hover_color, bar_hover_factor);
+
+    let base_stroke = if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(10) };
+    let hover_stroke = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(18) };
+    let search_stroke = lerp_c(base_stroke, hover_stroke, bar_hover_factor);
+
+    let p = ui.painter().with_clip_rect(search_rect);
+    let shadow_alpha = (if dark { 50.0 } else { 12.0 } * (1.0 + bar_hover_factor * 0.2 + expand_factor * 0.25)) as u8;
+    p.rect_filled(search_rect.translate(vec2(0.0, 1.5)), 12.0, Color32::from_black_alpha(shadow_alpha));
+    p.rect_filled(search_rect, 12.0, search_bg);
+    p.rect_stroke(search_rect, 12.0, egui::Stroke::new(0.5, search_stroke), egui::StrokeKind::Inside);
+
+    if search_resp.on_hover_text("搜索终端与协作消息 (Ctrl+F)").clicked() && !is_search_open {
+        state.search_state.is_open = true;
+        state.search_state.request_focus = true;
+    }
+
+    let icon_pos = Pos2::new(search_rect.min.x + 17.0, search_rect.center().y);
+    let icon_color = if is_search_open {
+        if dark { Color32::WHITE } else { Color32::BLACK }
+    } else {
+        lerp_c(
+            if dark { Color32::from_gray(160) } else { Color32::from_gray(100) },
+            if dark { Color32::WHITE } else { Color32::BLACK },
+            bar_hover_factor,
+        )
+    };
+    p.text(
+        icon_pos,
+        Align2::CENTER_CENTER,
+        "🔍",
+        FontId::new(13.0, egui::FontFamily::Proportional),
+        icon_color,
+    );
+
+    let inner_alpha = ((expand_factor - 0.15) / 0.85).clamp(0.0, 1.0);
+    if inner_alpha > 0.01 {
+        let inner_rect = Rect::from_min_max(
+            Pos2::new(search_rect.min.x + 34.0, search_rect.min.y),
+            Pos2::new(search_rect.max.x - 6.0, search_rect.max.y),
+        );
+        let mut child_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(inner_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        child_ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+
+        let text_sub = if dark { Color32::from_gray(210) } else { Color32::from_gray(70) };
+
+        let mut execute_search = false;
+        let mut go_prev = false;
+        let mut go_next = false;
+        let mut close_bar = false;
+
+        let input_w = egui::lerp(20.0..=135.0, inner_alpha);
+        let (input_rect, _) = child_ui.allocate_exact_size(vec2(input_w, 24.0), Sense::hover());
+
+        let edit_id = child_ui.id().with("chat_find_input");
+        let mut input_ui = child_ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(input_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+
+        let text_color = if dark { Color32::WHITE } else { Color32::BLACK };
+        let mut query = state.search_state.query.clone();
+        let edit_resp = input_ui.add(
+            egui::TextEdit::singleline(&mut query)
+                .id(edit_id)
+                .desired_width(input_w)
+                .font(FontId::proportional(13.0))
+                .text_color(text_color)
+                .hint_text("Find...")
+                .frame(egui::Frame::NONE)
+                .margin(vec2(2.0, 2.0)),
+        );
+
+        if state.search_state.request_focus {
+            edit_resp.request_focus();
+            state.search_state.request_focus = false;
+        }
+
+        if edit_resp.changed() {
+            state.search_state.query = query.clone();
+            execute_search = true;
+        }
+
+        if edit_resp.has_focus() {
+            if child_ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                close_bar = true;
+            }
+            if child_ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                go_next = true;
+            }
+            if child_ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter)) {
+                go_prev = true;
+            }
+        }
+
+        child_ui.add_space(6.0);
+
+        let total_matches = if let Some(r) = state.native_runs.iter().find(|r| r.round == round.id && r.agent == active_agent) {
+            if let Some(tab) = r.session.tabs.get(r.session.active_tab) {
+                tab.search_state.matches.len()
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let active_match = if let Some(r) = state.native_runs.iter().find(|r| r.round == round.id && r.agent == active_agent) {
+            if let Some(tab) = r.session.tabs.get(r.session.active_tab) {
+                tab.search_state.active_match
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let count_text = if state.search_state.query.trim().is_empty() {
+            "-".to_string()
+        } else if total_matches == 0 {
+            "0/0".to_string()
+        } else {
+            format!("{}/{}", active_match + 1, total_matches)
+        };
+
+        let (badge_bg, badge_stroke, badge_fg) = if total_matches == 0 && !state.search_state.query.trim().is_empty() {
+            (
+                Color32::from_rgba_unmultiplied(225, 55, 45, 28),
+                Color32::from_rgba_unmultiplied(235, 75, 65, 75),
+                Color32::from_rgb(255, 120, 110),
+            )
+        } else if total_matches > 0 {
+            (
+                if dark { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(14) },
+                if dark { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(20) },
+                Color32::WHITE,
+            )
+        } else {
+            (
+                if dark { Color32::from_white_alpha(6) } else { Color32::from_black_alpha(8) },
+                if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) },
+                text_sub,
+            )
+        };
+
+        let (badge_rect, _) = child_ui.allocate_exact_size(vec2(38.0, 20.0), Sense::hover());
+        let p_b = child_ui.painter();
+        p_b.rect_filled(badge_rect, 5.0, badge_bg);
+        p_b.rect_stroke(badge_rect, 5.0, egui::Stroke::new(0.5, badge_stroke), egui::StrokeKind::Inside);
+        p_b.text(badge_rect.center(), Align2::CENTER_CENTER, count_text, FontId::new(11.0, egui::FontFamily::Monospace), badge_fg);
+
+        child_ui.add_space(6.0);
+
+        let (sep_rect, _) = child_ui.allocate_exact_size(vec2(1.0, 14.0), Sense::hover());
+        child_ui.painter().rect_filled(sep_rect, 0.0, if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) });
+
+        child_ui.add_space(6.0);
+
+        let btn_base = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
+        let btn_hover = if dark { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) };
+        let btn_base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+        let btn_hover_stroke = if dark { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(18) };
+        let btn_shadow = if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) };
+
+        // Prev
+        let (prev_rect, prev_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+        let prev_hf = child_ui.ctx().animate_bool(Id::new(("find_prev_h", &round.id)), prev_resp.hovered());
+        let prev_bg = lerp_c(btn_base, btn_hover, prev_hf);
+        let prev_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, prev_hf);
+        let prev_p = child_ui.painter();
+        prev_p.rect_filled(prev_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+        prev_p.rect_filled(prev_rect, 7.0, prev_bg);
+        prev_p.rect_stroke(prev_rect, 7.0, egui::Stroke::new(0.5, prev_stroke), egui::StrokeKind::Inside);
+
+        let prev_c = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, prev_hf);
+        let c = prev_rect.center();
+        prev_p.line_segment([c + vec2(-3.5, 1.5), c + vec2(0.0, -2.5)], egui::Stroke::new(1.35, prev_c));
+        prev_p.line_segment([c + vec2(0.0, -2.5), c + vec2(3.5, 1.5)], egui::Stroke::new(1.35, prev_c));
+        if prev_resp.on_hover_text("上一个匹配项 (Shift+Enter)").clicked() {
+            go_prev = true;
+        }
+
+        child_ui.add_space(4.0);
+
+        // Next
+        let (next_rect, next_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+        let next_hf = child_ui.ctx().animate_bool(Id::new(("find_next_h", &round.id)), next_resp.hovered());
+        let next_bg = lerp_c(btn_base, btn_hover, next_hf);
+        let next_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, next_hf);
+        let next_p = child_ui.painter();
+        next_p.rect_filled(next_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+        next_p.rect_filled(next_rect, 7.0, next_bg);
+        next_p.rect_stroke(next_rect, 7.0, egui::Stroke::new(0.5, next_stroke), egui::StrokeKind::Inside);
+
+        let next_c = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, next_hf);
+        let c = next_rect.center();
+        next_p.line_segment([c + vec2(-3.5, -2.0), c + vec2(0.0, 2.0)], egui::Stroke::new(1.35, next_c));
+        next_p.line_segment([c + vec2(0.0, 2.0), c + vec2(3.5, -2.0)], egui::Stroke::new(1.35, next_c));
+        if next_resp.on_hover_text("下一个匹配项 (Enter)").clicked() {
+            go_next = true;
+        }
+
+        child_ui.add_space(4.0);
+
+        // Case
+        let is_case = state.search_state.case_sensitive;
+        let (case_rect, case_resp) = child_ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
+        let case_hf = child_ui.ctx().animate_bool(Id::new(("find_case_h", &round.id)), case_resp.hovered());
+        let case_bg = if is_case {
+            if dark { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(22) }
+        } else {
+            lerp_c(btn_base, btn_hover, case_hf)
+        };
+        let case_stroke = if is_case {
+            if dark { Color32::from_white_alpha(48) } else { Color32::from_black_alpha(35) }
+        } else {
+            lerp_c(btn_base_stroke, btn_hover_stroke, case_hf)
+        };
+        let case_p = child_ui.painter();
+        case_p.rect_filled(case_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+        case_p.rect_filled(case_rect, 7.0, case_bg);
+        case_p.rect_stroke(case_rect, 7.0, egui::Stroke::new(0.5, case_stroke), egui::StrokeKind::Inside);
+
+        let case_fg = if is_case {
+            Color32::WHITE
+        } else {
+            lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, case_hf)
+        };
+        case_p.text(case_rect.center(), Align2::CENTER_CENTER, "Aa", FontId::new(11.5, egui::FontFamily::Proportional), case_fg);
+        if case_resp.on_hover_text("区分大小写 (Match Case)").clicked() {
+            state.search_state.case_sensitive = !state.search_state.case_sensitive;
+            execute_search = true;
+        }
+
+        child_ui.add_space(4.0);
+
+        // Close
+        let (close_rect, close_resp) = child_ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+        let close_hf = child_ui.ctx().animate_bool(Id::new(("find_close_h", &round.id)), close_resp.hovered());
+        let close_bg = lerp_c(btn_base, btn_hover, close_hf);
+        let close_stroke = lerp_c(btn_base_stroke, btn_hover_stroke, close_hf);
+        let close_p = child_ui.painter();
+        close_p.rect_filled(close_rect.translate(vec2(0.0, 1.0)), 7.0, btn_shadow);
+        close_p.rect_filled(close_rect, 7.0, close_bg);
+        close_p.rect_stroke(close_rect, 7.0, egui::Stroke::new(0.5, close_stroke), egui::StrokeKind::Inside);
+
+        let close_color = lerp_c(if dark { Color32::from_gray(160) } else { Color32::from_gray(100) }, if dark { Color32::WHITE } else { Color32::BLACK }, close_hf);
+        let c_center = close_rect.center();
+        let cd = 3.2;
+        close_p.line_segment([c_center + vec2(-cd, -cd), c_center + vec2(cd, cd)], egui::Stroke::new(1.35, close_color));
+        close_p.line_segment([c_center + vec2(-cd, cd), c_center + vec2(cd, -cd)], egui::Stroke::new(1.35, close_color));
+        if close_resp.on_hover_text("关闭搜索 (Esc)").clicked() {
+            close_bar = true;
+        }
+
+        if execute_search {
+            if let Some(r) = state.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == active_agent) {
+                if let Some(tab) = r.session.tabs.get_mut(r.session.active_tab) {
+                    tab.search_state.query = state.search_state.query.clone();
+                    tab.search_state.case_sensitive = state.search_state.case_sensitive;
+                    tab.search_state.is_open = !state.search_state.query.is_empty();
+                    if let Some(t) = &tab.terminal {
+                        tab.search_state.matches = if state.search_state.query.is_empty() {
+                            Vec::new()
+                        } else {
+                            t.search(&state.search_state.query, tab.search_state.case_sensitive)
+                        };
+                        tab.search_state.active_match = 0;
+                        if let Some(m) = tab.search_state.current_match().cloned() {
+                            if let Some(t_mut) = &mut tab.terminal {
+                                t_mut.scroll_to_match(&m);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if go_prev {
+            if let Some(r) = state.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == active_agent) {
+                if let Some(tab) = r.session.tabs.get_mut(r.session.active_tab) {
+                    tab.search_state.prev_match();
+                    if let Some(m) = tab.search_state.current_match().cloned() {
+                        if let Some(t) = &mut tab.terminal {
+                            t.scroll_to_match(&m);
+                        }
+                    }
+                }
+            }
+        }
+
+        if go_next {
+            if let Some(r) = state.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == active_agent) {
+                if let Some(tab) = r.session.tabs.get_mut(r.session.active_tab) {
+                    tab.search_state.next_match();
+                    if let Some(m) = tab.search_state.current_match().cloned() {
+                        if let Some(t) = &mut tab.terminal {
+                            t.scroll_to_match(&m);
+                        }
+                    }
+                }
+            }
+        }
+
+        if close_bar {
+            state.search_state.is_open = false;
+            state.search_state.query.clear();
+            if let Some(r) = state.native_runs.iter_mut().find(|r| r.round == round.id && r.agent == active_agent) {
+                if let Some(tab) = r.session.tabs.get_mut(r.session.active_tab) {
+                    tab.search_state.is_open = false;
+                    tab.search_state.matches.clear();
+                }
+            }
+        }
+    }
 }
 
 /// 侧边栏：项目列表与新建管理
@@ -324,25 +723,6 @@ fn draw_chat_sidebar(
 ) -> Option<Action> {
     let mut action = None;
     let dark = ui.visuals().dark_mode;
-    let p = ui.painter();
-
-    // 边栏整体柔和背景与右侧分隔线
-    let sidebar_bg = if dark {
-        Color32::from_black_alpha(35)
-    } else {
-        Color32::from_black_alpha(10)
-    };
-    p.rect_filled(sidebar_rect, 0.0, sidebar_bg);
-
-    let divider_c = if dark {
-        Color32::from_white_alpha(10)
-    } else {
-        Color32::from_black_alpha(12)
-    };
-    p.line_segment(
-        [sidebar_rect.right_top(), sidebar_rect.right_bottom()],
-        egui::Stroke::new(0.6, divider_c),
-    );
 
     let mut side_ui = ui.new_child(
         egui::UiBuilder::new()
@@ -350,28 +730,46 @@ fn draw_chat_sidebar(
             .max_rect(sidebar_rect),
     );
 
-    // 1. 顶部栏：PROJECTS 标题 + ＋ 新建 + ◀ 收起按钮（纯矢量绘制，严格水平垂直对齐）
-    let (header_row_rect, _) = side_ui.allocate_exact_size(vec2(sidebar_rect.width(), 36.0), Sense::hover());
+    // 边栏与右侧主视图的分隔线（不画深色背景，与主界面工作区边栏保持完全一致的透明质感）
+    let divider_c = if dark {
+        Color32::from_white_alpha(10)
+    } else {
+        Color32::from_black_alpha(12)
+    };
+    side_ui.painter().line_segment(
+        [sidebar_rect.right_top(), sidebar_rect.right_bottom()],
+        egui::Stroke::new(0.6, divider_c),
+    );
+
+    // 1. 顶部栏：PROJECTS 标题 + ＋ 新建 + ◀ 收起按钮（与主区域顶栏 100% 绝对水平基准线对齐）
+    let (header_row_rect, _) = side_ui.allocate_exact_size(vec2(sidebar_rect.width(), 34.0), Sense::hover());
+    let row_center_y = header_row_rect.center().y;
+
+    // PROJECTS 标题：与下方卡片内文字精准垂直对齐，完全复用 sidebar.rs 规范
+    let title_font = FontId::new(11.5, egui::FontFamily::Proportional);
     let title_c = if dark { Color32::from_gray(165) } else { Color32::from_gray(95) };
+    side_ui.painter().text(
+        Pos2::new(header_row_rect.min.x + 24.0, row_center_y),
+        Align2::LEFT_CENTER,
+        "PROJECTS",
+        title_font,
+        title_c,
+    );
+
     let mut header_ui = side_ui.new_child(
         egui::UiBuilder::new()
             .id_salt("chat_sidebar_header_ui")
-            .max_rect(header_row_rect),
+            .max_rect(header_row_rect)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
-    header_ui.horizontal(|ui| {
-        ui.add_space(14.0);
-        ui.label(RichText::new("PROJECTS").size(11.5).color(title_c).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(10.0);
-            if vector_tool_button(ui, ToolIcon::ChevronLeft, "收起侧边栏") {
-                state.sidebar_expanded = false;
-            }
-            ui.add_space(2.0);
-            if vector_tool_button(ui, ToolIcon::Plus, "新建工作流项目") {
-                action = Some(Action::New);
-            }
-        });
-    });
+    header_ui.add_space(12.0);
+    if vector_tool_button(&mut header_ui, ToolIcon::ChevronLeft, "收起侧边栏") {
+        state.sidebar_expanded = false;
+    }
+    header_ui.add_space(4.0);
+    if vector_tool_button(&mut header_ui, ToolIcon::Plus, "新建工作流项目") {
+        action = Some(Action::New);
+    }
 
     // 2. 底部返回工作区按钮区域
     let bottom_h = 42.0;
@@ -414,23 +812,19 @@ fn draw_chat_sidebar(
                         let sf = ui.ctx().animate_bool(resp.id.with("sel"), is_sel);
 
                         let base_bg = if dark { Color32::from_white_alpha(5) } else { Color32::from_black_alpha(8) };
-                        let hover_bg = if dark { Color32::from_white_alpha(13) } else { Color32::from_black_alpha(15) };
+                        let hover_bg = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
                         let sel_bg = if dark {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 42)
+                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 40)
                         } else {
-                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 26)
+                            Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 24)
                         };
                         let bg = lerp_color(lerp_color(base_bg, hover_bg, hf), sel_bg, sf);
 
-                        let shadow_c = if dark { Color32::from_black_alpha(45) } else { Color32::from_black_alpha(12) };
+                        // 投影与底色完全对齐主界面 Workspace 卡片规范（无主题色描边，纯净磨砂）
+                        let shadow_c = if dark { Color32::from_black_alpha(80) } else { Color32::from_black_alpha(18) };
                         let cp = ui.painter();
-                        cp.rect_filled(rect.translate(vec2(0.0, 1.2)), 10.0, shadow_c);
-                        cp.rect_filled(rect, 10.0, bg);
-
-                        let base_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
-                        let sel_stroke = Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.65);
-                        let stroke_c = lerp_color(base_stroke, sel_stroke, sf);
-                        cp.rect_stroke(rect, 10.0, egui::Stroke::new(0.6, stroke_c), egui::StrokeKind::Inside);
+                        cp.rect_filled(rect.translate(vec2(0.0, 2.0)), 12.0, shadow_c);
+                        cp.rect_filled(rect, 12.0, bg);
 
                         // 悬浮显示纯矢量 ✕ 删除按键
                         let del_center = Pos2::new(rect.max.x - 14.0, rect.min.y + 17.0);
@@ -569,16 +963,16 @@ fn draw_terminal_card(
 
     let is_active = state.active_terminal_agent.as_deref() == Some(&member.id);
 
-    // 1. 卡片外框与底色（当前活跃终端提供精致主题色微光晕）
+    // 1. 卡片外框与底色（焦点窗口使用纯白微边框强调，不使用主题色）
     let card_bg = state.theme.background;
     let border_c = if is_active {
-        Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.75)
+        if dark { Color32::from_white_alpha(32) } else { Color32::from_black_alpha(30) }
     } else if dark {
         Color32::from_white_alpha(10)
     } else {
         Color32::from_black_alpha(12)
     };
-    let border_w = if is_active { 1.0 } else { 0.6 };
+    let border_w = if is_active { 0.8 } else { 0.6 };
     p.rect_filled(card_rect.translate(vec2(0.0, 1.2)), 8.0, Color32::from_black_alpha(if dark { 45 } else { 12 }));
     p.rect_filled(card_rect, 8.0, card_bg);
     p.rect_stroke(card_rect, 8.0, Stroke::new(border_w, border_c), egui::StrokeKind::Inside);
@@ -623,29 +1017,32 @@ fn draw_terminal_card(
     p.rect_filled(chip_rect, 3.0, if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(8) });
     p.galley(chip_rect.center() - role_galley.size() * 0.5, role_galley, muted(dark));
 
-    // 右侧：保留窗口交互状态（执行中 / 完成 / 就绪等），以极简高质感微字体排版
-    let (status_text, status_c) = if let Some(r) = &run {
+    // 右侧：保留窗口交互状态（执行中 / 完成 / 就绪等），以极简高质感微字体与胶囊排版，严格垂直居中
+    let (status_text, status_c, status_bg, status_border) = if let Some(r) = &run {
         if r.status.contains("失败") {
-            (r.status.clone(), Color32::from_rgb(239, 68, 68))
+            (r.status.clone(), Color32::from_rgb(248, 113, 113), Color32::from_rgba_unmultiplied(239, 68, 68, 24), Color32::from_rgba_unmultiplied(239, 68, 68, 65))
         } else if r.status.contains("执行") || r.status.contains("运行") {
-            (r.status.clone(), Color32::from_rgb(59, 130, 246))
+            (r.status.clone(), Color32::from_rgb(96, 165, 250), Color32::from_rgba_unmultiplied(59, 130, 246, 24), Color32::from_rgba_unmultiplied(59, 130, 246, 65))
         } else if r.status.contains("就绪") || r.status.contains("交互") || r.status.contains("完成") {
-            (r.status.clone(), Color32::from_rgb(34, 197, 94))
+            (r.status.clone(), Color32::from_rgb(74, 222, 128), Color32::from_rgba_unmultiplied(34, 197, 94, 24), Color32::from_rgba_unmultiplied(34, 197, 94, 65))
         } else if r.status.contains("退出") {
-            (r.status.clone(), Color32::from_rgb(156, 163, 175))
+            (r.status.clone(), Color32::from_gray(160), Color32::from_white_alpha(8), Color32::from_white_alpha(14))
         } else {
-            (r.status.clone(), Color32::from_rgb(59, 130, 246))
+            (r.status.clone(), Color32::from_rgb(96, 165, 250), Color32::from_rgba_unmultiplied(59, 130, 246, 24), Color32::from_rgba_unmultiplied(59, 130, 246, 65))
         }
     } else {
-        ("未启动".to_string(), weak)
+        ("未启动".to_string(), muted(dark), Color32::from_white_alpha(6), Color32::from_white_alpha(10))
     };
-    p.text(
-        Pos2::new(titlebar_rect.max.x - 12.0, titlebar_rect.center().y),
-        egui::Align2::RIGHT_CENTER,
-        status_text,
-        FontId::proportional(11.0),
-        status_c,
+
+    let st_font = FontId::new(11.5, egui::FontFamily::Proportional);
+    let st_w = p.layout_no_wrap(status_text.clone(), st_font.clone(), Color32::WHITE).size().x;
+    let st_rect = Rect::from_center_size(
+        Pos2::new(titlebar_rect.max.x - 12.0 - (st_w + 14.0) * 0.5, titlebar_rect.center().y),
+        vec2(st_w + 14.0, 20.0),
     );
+    p.rect_filled(st_rect, 5.0, status_bg);
+    p.rect_stroke(st_rect, 5.0, Stroke::new(0.5, status_border), egui::StrokeKind::Inside);
+    p.text(st_rect.center(), Align2::CENTER_CENTER, &status_text, st_font, status_c);
 
     // 3. 视口主体
     let body_rect = Rect::from_min_max(
@@ -1101,7 +1498,7 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
         }
     }
 
-    let header_h = 42.0;
+    let header_h = 34.0;
     let footer_h = 58.0;
 
     let header_rect = Rect::from_min_size(main_rect.min, vec2(main_rect.width(), header_h));
@@ -1114,10 +1511,10 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
         Pos2::new(main_rect.max.x, footer_rect.min.y),
     );
 
-    // 1. 顶部操作栏（包含项目标题、阶段徽章、工作目录、目标提示、角色标签及协作消息展开按键）
+    // 1. 顶部操作栏（包含阶段徽章、工作目录、目标提示、角色标签、全局搜索及协作消息展开按键，严格垂直居中）
     let mut header_ui = ui.new_child(egui::UiBuilder::new().id_salt("chat_main_header").max_rect(header_rect));
     header_ui.spacing_mut().item_spacing = vec2(8.0, 0.0);
-    header_ui.horizontal(|ui| {
+    header_ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.add_space(8.0);
         if !state.sidebar_expanded {
             if icon_pill_button(ui, Some(ToolIcon::Sidebar), "项目", "展开项目侧边栏", false, Some(custom_color)) {
@@ -1127,9 +1524,6 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
                 action = Some(Action::Close);
             }
         }
-
-        // 项目名称
-        ui.label(RichText::new(&round.title).size(15.5).strong());
 
         // 阶段胶囊徽章
         draw_phase_badge(ui, &round.phase);
@@ -1153,20 +1547,31 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
             chip_badge(ui, &format!("{} · {}", p.name, p.role));
         }
 
-        // 右侧操作项：展开消息抽屉与新建
+        // 右侧操作项：展开消息抽屉与新建，以及联动搜索栏
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(8.0);
             if !state.sidebar_expanded && vector_tool_button(ui, ToolIcon::Plus, "新建工作流") {
                 action = Some(Action::New);
             }
+            let msg_matches = if state.search_state.query.trim().is_empty() {
+                0
+            } else {
+                let q = state.search_state.query.to_lowercase();
+                state.messages.iter().filter(|m| m.body.to_lowercase().contains(&q) || m.from.to_lowercase().contains(&q) || m.to.to_lowercase().contains(&q)).count()
+            };
             let msg_text = if state.messages.is_empty() {
                 "消息".to_string()
+            } else if msg_matches > 0 {
+                format!("消息 ({}) · 搜到{}", state.messages.len(), msg_matches)
             } else {
                 format!("消息 ({})", state.messages.len())
             };
             if icon_pill_button(ui, Some(ToolIcon::Message), &msg_text, if state.chat_expanded { "收起协作消息" } else { "展开协作消息" }, state.chat_expanded, Some(custom_color)) {
                 state.chat_expanded = !state.chat_expanded;
             }
+
+            // 搜索框（联动终端内容与协作消息，Ctrl+F唤起）
+            draw_chat_search_bar(ui, state, &round, dark);
         });
     });
 
@@ -1275,23 +1680,43 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
                                     round.participants.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| id.into())
                                 }
                             };
-                            ui.push_id(&m.id, |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.strong(format!("{} → {}", name(&m.from), name(&m.to)));
-                                    if vector_tool_button(ui, ToolIcon::Reply, "回复此消息") {
-                                        state.reply = Some(m.id.clone());
-                                        state.recipient = if m.from == "user" { m.to.clone() } else { m.from.clone() };
-                                    }
-                                    if m.from != "user" && m.to == "user" {
-                                        ui.add_enabled_ui(!running, |ui| {
-                                            if vector_tool_button(ui, ToolIcon::ArrowRight, "交给其他 AI") { action = Some(Action::Handoff(m.id.clone())); }
-                                        });
-                                    }
+                            let is_matched = !state.search_state.query.trim().is_empty() && {
+                                let q = state.search_state.query.to_lowercase();
+                                m.body.to_lowercase().contains(&q) || m.from.to_lowercase().contains(&q) || m.to.to_lowercase().contains(&q)
+                            };
+
+                            let msg_frame = if is_matched {
+                                egui::Frame::NONE
+                                    .fill(if dark { Color32::from_rgba_unmultiplied(240, 180, 50, 24) } else { Color32::from_rgba_unmultiplied(230, 160, 30, 28) })
+                                    .corner_radius(6)
+                                    .stroke(Stroke::new(0.8, if dark { Color32::from_rgba_unmultiplied(240, 180, 50, 90) } else { Color32::from_rgba_unmultiplied(230, 160, 30, 120) }))
+                                    .inner_margin(egui::Margin::symmetric(6, 4))
+                            } else {
+                                egui::Frame::NONE.inner_margin(egui::Margin::symmetric(2, 2))
+                            };
+
+                            msg_frame.show(ui, |ui| {
+                                ui.push_id(&m.id, |ui| {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.strong(format!("{} → {}", name(&m.from), name(&m.to)));
+                                        if is_matched {
+                                            ui.label(RichText::new("匹配").size(10.0).strong().color(if dark { Color32::from_rgb(250, 200, 80) } else { Color32::from_rgb(210, 135, 20) }));
+                                        }
+                                        if vector_tool_button(ui, ToolIcon::Reply, "回复此消息") {
+                                            state.reply = Some(m.id.clone());
+                                            state.recipient = if m.from == "user" { m.to.clone() } else { m.from.clone() };
+                                        }
+                                        if m.from != "user" && m.to == "user" {
+                                            ui.add_enabled_ui(!running, |ui| {
+                                                if vector_tool_button(ui, ToolIcon::ArrowRight, "交给其他 AI") { action = Some(Action::Handoff(m.id.clone())); }
+                                            });
+                                        }
+                                    });
+                                    let text = m.body.lines().filter(|line| line.trim() != "[WORKFLOW_COMPLETE]").collect::<Vec<_>>().join("\n");
+                                    ui.add(egui::Label::new(text).wrap().selectable(true));
                                 });
-                                let text = m.body.lines().filter(|line| line.trim() != "[WORKFLOW_COMPLETE]").collect::<Vec<_>>().join("\n");
-                                ui.add(egui::Label::new(text).wrap().selectable(true));
-                                ui.separator();
                             });
+                            ui.separator();
                         }
                     });
             });
