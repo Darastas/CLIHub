@@ -800,11 +800,7 @@ fn draw_chat_sidebar(
         .auto_shrink([false, false])
         .show(&mut cards_ui, |ui| {
             ui.add_space(2.0);
-            if state.rounds.is_empty() {
-                ui.centered_and_justified(|ui| {
-                    ui.label(RichText::new("暂无项目\n点击 ＋ 新建").small().color(muted(dark)));
-                });
-            } else {
+            if !state.rounds.is_empty() {
                 for (i, (_, round)) in state.rounds.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.add_space(8.0);
@@ -1344,7 +1340,10 @@ fn draw_sunken_composer(
         .hint_text("输入任务或指令… (Enter 发送，Shift+Enter 换行)")
         .frame(egui::Frame::NONE)
         .margin(vec2(4.0, 2.0));
-    edit_ui.add(text_edit);
+    let edit_resp = edit_ui.add(text_edit);
+    if edit_resp.clicked() || (ui.rect_contains_pointer(edit_rect) && ui.input(|i| i.pointer.primary_clicked())) {
+        edit_ui.memory_mut(|m| m.request_focus(edit_id));
+    }
 
     if enter_pressed {
         while state.body.ends_with('\n') || state.body.ends_with('\r') {
@@ -1478,9 +1477,9 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
                 if icon_pill_button(ui, Some(ToolIcon::Reply), "返回工作区", "返回普通终端", false, None) {
                     action = Some(Action::Close);
                 }
-            }
-            if vector_tool_button(ui, ToolIcon::Plus, "新建工作流") {
-                action = Some(Action::New);
+                if vector_tool_button(ui, ToolIcon::Plus, "新建工作流") {
+                    action = Some(Action::New);
+                }
             }
         });
         empty_ui.centered_and_justified(|ui| {

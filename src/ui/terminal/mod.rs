@@ -703,22 +703,24 @@ fn show_impl(
         let find_input_id = ui.id().with("find_input");
         let find_input_focused = ui.memory(|m| m.has_focus(find_input_id));
 
-        // 点击终端区域时获取焦点；未打开搜索栏且未聚焦搜索框时维持终端焦点
-        if resp.clicked() {
+        let any_other_focused = ui.memory(|m| {
+            if let Some(fid) = m.focused() {
+                fid != resp.id
+            } else {
+                false
+            }
+        });
+
+        // 点击终端区域时获取焦点；未打开搜索栏且无其他输入框聚焦时在普通终端模式下维持焦点
+        if resp.clicked() || resp.drag_started() {
             resp.request_focus();
-        } else if input_enabled && !is_search_open && !find_input_focused {
+        } else if input_enabled && !is_search_open && !find_input_focused && !any_other_focused {
             if !embedded && !resp.has_focus() {
-                resp.request_focus();
-            } else if embedded && is_active && !resp.has_focus() {
                 resp.request_focus();
             }
         }
         let window_focused = ui.input(|i| i.focused);
-        let focused = if embedded {
-            is_active && window_focused && !find_input_focused
-        } else {
-            resp.has_focus() && window_focused && !find_input_focused
-        };
+        let focused = resp.has_focus() && window_focused && !find_input_focused && (!embedded || is_active);
 
         // 动态计算行列数（嵌入模式下精简留白，顶端对齐终端行）
         let min_margin_x = if embedded { 8.0f32 } else { 12.0f32 };
