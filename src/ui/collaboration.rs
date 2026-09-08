@@ -637,7 +637,8 @@ fn draw_terminal_card(
     let mut body_ui = ui.new_child(
         egui::UiBuilder::new()
             .id_salt(("agent_term_body", round_id, &member.id))
-            .max_rect(body_rect),
+            .max_rect(body_rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
     );
     body_ui.set_clip_rect(body_rect);
 
@@ -967,7 +968,10 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
     ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
     ui.spacing_mut().button_padding = vec2(10.0, 6.0);
 
-    let bounds = ui.available_rect_before_wrap();
+    let origin = ui.cursor().min;
+    let avail_size = ui.available_size();
+    let clip = ui.clip_rect();
+    let bounds = Rect::from_min_size(origin, avail_size).intersect(clip);
     // 计算项目侧边栏宽度与主绘图区域
     let sidebar_w = if state.sidebar_expanded {
         let max_sidebar = (bounds.width() * 0.32).min(240.0);
@@ -1663,6 +1667,7 @@ mod tests {
                     egui::Panel::left("test_sidebar")
                         .exact_size(232.0)
                         .show(ui, |_| {});
+                    crate::ui::titlebar::show(ui);
                     egui::CentralPanel::default_margins().show(ui, |ui| {
                         show(ui, &mut state, &crate::config::ThemeSettings::default());
                         assert!(ui.min_rect().max.x <= w + 1.0, "horizontal overflow at {w}");
