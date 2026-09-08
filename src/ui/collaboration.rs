@@ -27,6 +27,7 @@ fn phase_name(p: &Phase) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn phase_color(phase: &Phase) -> Color32 {
     match phase {
         Phase::Development => Color32::from_rgb(59, 130, 246),
@@ -171,21 +172,21 @@ fn vector_tool_button(ui: &mut Ui, icon: ToolIcon, tip: &str) -> bool {
     let dark = ui.visuals().dark_mode;
     let (rect, response) = ui.allocate_exact_size(vec2(24.0, 24.0), egui::Sense::click());
     let hover = ui.ctx().animate_bool(response.id.with("hover"), response.hovered() && ui.is_enabled());
-    let alpha = (6.0 + 10.0 * hover) as u8;
+    let alpha = (5.0 + 9.0 * hover) as u8;
     let fill = if dark { Color32::from_white_alpha(alpha) } else { Color32::from_black_alpha(alpha) };
     let border = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
     let painter = ui.painter();
-    painter.rect_filled(rect.translate(vec2(0.0, 1.2)), 5.0, Color32::from_black_alpha(if dark { 40 } else { 12 }));
-    painter.rect_filled(rect, 5.0, fill);
-    painter.rect_stroke(rect, 5.0, egui::Stroke::new(0.5, border), egui::StrokeKind::Inside);
+    painter.rect_filled(rect.translate(vec2(0.0, 1.5)), 6.0, Color32::from_black_alpha(if dark { 60 } else { 15 }));
+    painter.rect_filled(rect, 6.0, fill);
+    painter.rect_stroke(rect, 6.0, egui::Stroke::new(0.5, border), egui::StrokeKind::Inside);
     let fg = if !ui.is_enabled() {
         ui.visuals().weak_text_color()
     } else if response.hovered() {
         if dark { Color32::WHITE } else { Color32::BLACK }
     } else if dark {
-        Color32::from_gray(170)
+        Color32::from_gray(160)
     } else {
-        Color32::from_gray(90)
+        Color32::from_gray(100)
     };
     let stroke = Stroke::new(1.3, fg);
     match icon {
@@ -232,7 +233,11 @@ fn icon_pill_button(
     
     let (fill, border) = if active {
         if let Some(accent) = theme_accent {
-            let bg = Color32::from_rgba_unmultiplied(accent[0], accent[1], accent[2], (45.0 + 15.0 * hover) as u8);
+            let bg = if dark {
+                Color32::from_rgba_unmultiplied(accent[0], accent[1], accent[2], (45.0 + 15.0 * hover) as u8)
+            } else {
+                Color32::from_rgba_unmultiplied(accent[0], accent[1], accent[2], (26.0 + 10.0 * hover) as u8)
+            };
             let b = Color32::from_rgb(accent[0], accent[1], accent[2]).gamma_multiply(0.65);
             (bg, b)
         } else {
@@ -248,9 +253,9 @@ fn icon_pill_button(
         (bg, b)
     };
     
-    p.rect_filled(rect.translate(vec2(0.0, 1.2)), 6.0, Color32::from_black_alpha(if dark { 50 } else { 12 }));
+    p.rect_filled(rect.translate(vec2(0.0, 1.5)), 6.0, Color32::from_black_alpha(if dark { 60 } else { 15 }));
     p.rect_filled(rect, 6.0, fill);
-    p.rect_stroke(rect, 6.0, Stroke::new(0.6, border), egui::StrokeKind::Inside);
+    p.rect_stroke(rect, 6.0, Stroke::new(0.5, border), egui::StrokeKind::Inside);
     
     let fg = if !ui.is_enabled() {
         ui.visuals().weak_text_color()
@@ -287,18 +292,13 @@ fn icon_pill_button(
 }
 
 fn draw_phase_badge(ui: &mut Ui, phase: &Phase) {
-    let (name, bg, fg) = match phase {
-        Phase::Development => ("开发", Color32::from_rgba_unmultiplied(59, 130, 246, 35), Color32::from_rgb(100, 180, 255)),
-        Phase::Review => ("审查", Color32::from_rgba_unmultiplied(245, 158, 11, 35), Color32::from_rgb(255, 180, 90)),
-        Phase::Fix => ("修复", Color32::from_rgba_unmultiplied(239, 68, 68, 35), Color32::from_rgb(255, 120, 120)),
-        Phase::Completed => ("完成", Color32::from_rgba_unmultiplied(16, 185, 129, 35), Color32::from_rgb(100, 220, 150)),
+    let name = match phase {
+        Phase::Development => "开发",
+        Phase::Review => "审查",
+        Phase::Fix => "修复",
+        Phase::Completed => "完成",
     };
-    let font = FontId::proportional(11.5);
-    let galley = ui.painter().layout_no_wrap(name.to_string(), font.clone(), fg);
-    let (rect, _) = ui.allocate_exact_size(vec2(galley.size().x + 12.0, 20.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 5.0, bg);
-    ui.painter().rect_stroke(rect, 5.0, Stroke::new(0.5, fg.gamma_multiply(0.4)), egui::StrokeKind::Inside);
-    ui.painter().galley(rect.center() - galley.size() * 0.5, galley, fg);
+    chip_badge(ui, name);
 }
 
 fn chip_badge(ui: &mut Ui, text: &str) -> egui::Response {
@@ -432,10 +432,6 @@ fn draw_chat_sidebar(
                         let stroke_c = lerp_color(base_stroke, sel_stroke, sf);
                         cp.rect_stroke(rect, 10.0, egui::Stroke::new(0.6, stroke_c), egui::StrokeKind::Inside);
 
-                        // 状态指示圆点（依阶段着色）
-                        let dot_c = phase_color(&round.phase);
-                        cp.circle_filled(Pos2::new(rect.min.x + 14.0, rect.min.y + 17.0), 3.5, dot_c);
-
                         // 悬浮显示纯矢量 ✕ 删除按键
                         let del_center = Pos2::new(rect.max.x - 14.0, rect.min.y + 17.0);
                         let del_rect = Rect::from_center_size(del_center, vec2(18.0, 18.0));
@@ -459,23 +455,24 @@ fn draw_chat_sidebar(
                             }
                         }
 
-                        // 项目标题（预留删除键宽度）
+                        // 项目标题（预留删除键宽度，起点与下方说明严格对齐于 14.0）
                         let name_c = if is_sel {
                             if dark { Color32::WHITE } else { Color32::BLACK }
                         } else {
                             text_color(dark)
                         };
-                        let title_max_w = card_w - 46.0;
+                        let title_max_w = card_w - 36.0;
                         let title_font = FontId::proportional(13.0);
                         let title_galley = cp.layout_no_wrap(round.title.clone(), title_font.clone(), name_c);
+                        let title_x = rect.min.x + 14.0;
                         if title_galley.size().x > title_max_w {
                             let mut short = round.title.clone();
                             while !short.is_empty() && cp.layout_no_wrap(format!("{}…", short), title_font.clone(), name_c).size().x > title_max_w {
                                 short.pop();
                             }
-                            cp.text(Pos2::new(rect.min.x + 24.0, rect.min.y + 17.0), egui::Align2::LEFT_CENTER, format!("{}…", short), title_font, name_c);
+                            cp.text(Pos2::new(title_x, rect.min.y + 17.0), egui::Align2::LEFT_CENTER, format!("{}…", short), title_font, name_c);
                         } else {
-                            cp.text(Pos2::new(rect.min.x + 24.0, rect.min.y + 17.0), egui::Align2::LEFT_CENTER, &round.title, title_font, name_c);
+                            cp.text(Pos2::new(title_x, rect.min.y + 17.0), egui::Align2::LEFT_CENTER, &round.title, title_font, name_c);
                         }
 
                         // 目标或参与说明
@@ -507,7 +504,7 @@ fn draw_chat_sidebar(
             }
         });
 
-    // 4. 底部退出操作按钮
+    // 4. 底部退出操作按钮（质感 100% 对齐主界面 Workspace 侧边栏按钮）
     let mut bottom_ui = side_ui.new_child(
         egui::UiBuilder::new()
             .id_salt("chat_sidebar_bottom_ui")
@@ -519,11 +516,13 @@ fn draw_chat_sidebar(
         let (btn_rect, btn_resp) = ui.allocate_exact_size(vec2(btn_w, 30.0), Sense::click());
         let bhf = ui.ctx().animate_bool(btn_resp.id.with("hov"), btn_resp.hovered());
         let fill = if dark {
-            Color32::from_white_alpha((6.0 + 8.0 * bhf) as u8)
+            Color32::from_white_alpha((5.0 + 9.0 * bhf) as u8)
         } else {
-            Color32::from_black_alpha((6.0 + 8.0 * bhf) as u8)
+            Color32::from_black_alpha((8.0 + 8.0 * bhf) as u8)
         };
         let bp = ui.painter();
+        let shadow_c = if dark { Color32::from_black_alpha(60) } else { Color32::from_black_alpha(15) };
+        bp.rect_filled(btn_rect.translate(vec2(0.0, 1.5)), 6.0, shadow_c);
         bp.rect_filled(btn_rect, 6.0, fill);
         let stroke_c = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
         bp.rect_stroke(btn_rect, 6.0, egui::Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
@@ -568,51 +567,55 @@ fn draw_terminal_card(
     let p = ui.painter();
     let weak = ui.visuals().weak_text_color();
 
-    // 1. 卡片外框与底色
+    let is_active = state.active_terminal_agent.as_deref() == Some(&member.id);
+
+    // 1. 卡片外框与底色（当前活跃终端提供精致主题色微光晕）
     let card_bg = state.theme.background;
-    let border_c = if dark { Color32::from_white_alpha(10) } else { Color32::from_black_alpha(12) };
+    let border_c = if is_active {
+        Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.75)
+    } else if dark {
+        Color32::from_white_alpha(10)
+    } else {
+        Color32::from_black_alpha(12)
+    };
+    let border_w = if is_active { 1.0 } else { 0.6 };
     p.rect_filled(card_rect.translate(vec2(0.0, 1.2)), 8.0, Color32::from_black_alpha(if dark { 45 } else { 12 }));
     p.rect_filled(card_rect, 8.0, card_bg);
-    p.rect_stroke(card_rect, 8.0, Stroke::new(0.6, border_c), egui::StrokeKind::Inside);
+    p.rect_stroke(card_rect, 8.0, Stroke::new(border_w, border_c), egui::StrokeKind::Inside);
 
-    // 2. 一体化标题栏（高度 32px）
+    // 2. 一体化标题栏（高度 32px，点击直接聚焦激活当前终端）
     let titlebar_h = 32.0;
     let titlebar_rect = Rect::from_min_size(card_rect.min, vec2(card_rect.width(), titlebar_h));
     let titlebar_bg = if dark { Color32::from_white_alpha(4) } else { Color32::from_black_alpha(5) };
     p.rect_filled(titlebar_rect, 8.0, titlebar_bg);
     p.line_segment([titlebar_rect.left_bottom(), titlebar_rect.right_bottom()], Stroke::new(0.5, border_c));
 
+    let title_resp = ui.interact(titlebar_rect, Id::new(("agent_card_title", round_id, &member.id)), Sense::click());
+    if title_resp.clicked() || (ui.rect_contains_pointer(card_rect) && ui.input(|i| i.pointer.any_pressed())) {
+        state.active_terminal_agent = Some(member.id.clone());
+    }
+
     let run = state.native_runs.iter_mut().find(|r| r.round == round_id && r.agent == member.id);
 
-    // 左侧：状态指示灯与 Agent 名称、角色微芯片
-    let (dot_c, status_text, status_c) = if let Some(r) = &run {
-        if r.status.contains("失败") {
-            (Color32::from_rgb(239, 68, 68), r.status.clone(), Color32::from_rgb(239, 68, 68))
-        } else if r.status.contains("就绪") || r.status.contains("交互") {
-            (Color32::from_rgb(34, 197, 94), r.status.clone(), Color32::from_rgb(34, 197, 94))
-        } else if r.status.contains("退出") {
-            (Color32::from_rgb(156, 163, 175), r.status.clone(), Color32::from_rgb(156, 163, 175))
-        } else {
-            (Color32::from_rgb(59, 130, 246), r.status.clone(), Color32::from_rgb(59, 130, 246))
-        }
-    } else {
-        (Color32::from_rgb(100, 116, 139), "● 未启动".to_string(), weak)
-    };
-    p.circle_filled(Pos2::new(titlebar_rect.min.x + 14.0, titlebar_rect.center().y), 3.5, dot_c);
-
+    // 左侧：Agent 名称（取消粗糙圆点指示灯，从 14.0 整齐靠左排版）与角色微芯片
     let name_font = FontId::proportional(12.5);
+    let name_c = if is_active {
+        if dark { Color32::WHITE } else { Color32::BLACK }
+    } else {
+        text_color(dark)
+    };
     p.text(
-        Pos2::new(titlebar_rect.min.x + 24.0, titlebar_rect.center().y),
+        Pos2::new(titlebar_rect.min.x + 14.0, titlebar_rect.center().y),
         egui::Align2::LEFT_CENTER,
         &member.name,
         name_font,
-        if dark { Color32::WHITE } else { Color32::BLACK },
+        name_c,
     );
 
     let role_font = FontId::proportional(11.0);
     let role_galley = p.layout_no_wrap(member.role.clone(), role_font.clone(), muted(dark));
     let name_w = p.layout_no_wrap(member.name.clone(), FontId::proportional(12.5), Color32::WHITE).size().x;
-    let chip_x = titlebar_rect.min.x + 24.0 + name_w + 8.0;
+    let chip_x = titlebar_rect.min.x + 14.0 + name_w + 8.0;
     let chip_rect = Rect::from_center_size(
         Pos2::new(chip_x + role_galley.size().x * 0.5 + 4.0, titlebar_rect.center().y),
         vec2(role_galley.size().x + 8.0, 18.0),
@@ -620,7 +623,22 @@ fn draw_terminal_card(
     p.rect_filled(chip_rect, 3.0, if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(8) });
     p.galley(chip_rect.center() - role_galley.size() * 0.5, role_galley, muted(dark));
 
-    // 右侧：状态小标签
+    // 右侧：保留窗口交互状态（执行中 / 完成 / 就绪等），以极简高质感微字体排版
+    let (status_text, status_c) = if let Some(r) = &run {
+        if r.status.contains("失败") {
+            (r.status.clone(), Color32::from_rgb(239, 68, 68))
+        } else if r.status.contains("执行") || r.status.contains("运行") {
+            (r.status.clone(), Color32::from_rgb(59, 130, 246))
+        } else if r.status.contains("就绪") || r.status.contains("交互") || r.status.contains("完成") {
+            (r.status.clone(), Color32::from_rgb(34, 197, 94))
+        } else if r.status.contains("退出") {
+            (r.status.clone(), Color32::from_rgb(156, 163, 175))
+        } else {
+            (r.status.clone(), Color32::from_rgb(59, 130, 246))
+        }
+    } else {
+        ("未启动".to_string(), weak)
+    };
     p.text(
         Pos2::new(titlebar_rect.max.x - 12.0, titlebar_rect.center().y),
         egui::Align2::RIGHT_CENTER,
@@ -643,7 +661,7 @@ fn draw_terminal_card(
     body_ui.set_clip_rect(body_rect);
 
     if let Some(run) = run {
-        crate::ui::terminal::show_embedded(&mut body_ui, &mut run.session, state.draft.is_none(), &state.theme);
+        crate::ui::terminal::show_embedded(&mut body_ui, &mut run.session, state.draft.is_none(), &state.theme, is_active);
     } else {
         body_ui.centered_and_justified(|ui| {
             ui.vertical_centered(|ui| {
@@ -744,17 +762,29 @@ fn draw_sunken_composer(
     let stroke_c = if dark { Color32::from_black_alpha(45) } else { Color32::from_black_alpha(12) };
     p.rect_stroke(trench_rect, 12.0, Stroke::new(0.5, stroke_c), egui::StrokeKind::Inside);
 
-    // 内部流式交互区域
-    let inner_rect = trench_rect.shrink2(vec2(6.0, 4.0));
-    let mut trench_ui = ui.new_child(
-        egui::UiBuilder::new()
-            .id_salt("sunken_trench_inner")
-            .max_rect(inner_rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
-    trench_ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
+    // 内部流式交互区域（绝对边界定位，确保右侧按钮 0 溢出风险）
+    let inner_rect = trench_rect.shrink2(vec2(8.0, 5.0));
 
-    // 5. 左侧：对哪个 Agent 说话微卡片药丸（纯矢量下箭头，彻底杜绝 Unicode 字体缺失方框）
+    // 1. 右侧操作按键定位（固定于 inner_rect 最右侧，严禁向外溢出 1 像素）
+    let right_btn_rect = Rect::from_min_size(
+        Pos2::new(inner_rect.max.x - 28.0, inner_rect.center().y - 14.0),
+        vec2(28.0, 28.0),
+    );
+
+    // 2. 状态文本区域（仅运行状态分配，位于右侧停止按键左边）
+    let (status_rect, right_boundary) = if state.is_running() {
+        let max_status_w = 180.0_f32.min((inner_rect.width() - 200.0).max(60.0));
+        let s_rect = Rect::from_min_max(
+            Pos2::new(right_btn_rect.min.x - 6.0 - max_status_w, inner_rect.min.y),
+            Pos2::new(right_btn_rect.min.x - 6.0, inner_rect.max.y),
+        );
+        let b = s_rect.min.x - 6.0;
+        (Some(s_rect), b)
+    } else {
+        (None, right_btn_rect.min.x - 6.0)
+    };
+
+    // 3. 左侧：对哪个 Agent 说话微卡片药丸
     let cur_target_name = round.participants.iter().find(|p| p.id == state.recipient).map(|p| p.name.as_str()).unwrap_or("首位执行");
     let pill_text = if state.reply.is_some() {
         format!("回复 {}", cur_target_name)
@@ -763,21 +793,25 @@ fn draw_sunken_composer(
     };
 
     let pill_font = FontId::proportional(12.0);
-    let pill_galley = trench_ui.painter().layout_no_wrap(pill_text.clone(), pill_font.clone(), text_color(dark));
+    let pill_galley = ui.painter().layout_no_wrap(pill_text.clone(), pill_font.clone(), text_color(dark));
     let pill_w = (pill_galley.size().x + 26.0).max(78.0);
-    let (pill_rect, pill_resp) = trench_ui.allocate_exact_size(vec2(pill_w, 28.0), Sense::click());
+    let pill_rect = Rect::from_min_size(
+        Pos2::new(inner_rect.min.x, inner_rect.center().y - 14.0),
+        vec2(pill_w, 28.0),
+    );
+    let pill_resp = ui.interact(pill_rect, Id::new("sunken_agent_pill"), Sense::click());
 
-    let phov = trench_ui.ctx().animate_bool(pill_resp.id.with("hov"), pill_resp.hovered());
+    let phov = ui.ctx().animate_bool(pill_resp.id.with("hov"), pill_resp.hovered());
     let pill_bg = if dark {
-        Color32::from_white_alpha((10.0 + 10.0 * phov) as u8)
+        Color32::from_white_alpha((6.0 + 8.0 * phov) as u8)
     } else {
-        Color32::from_black_alpha((10.0 + 8.0 * phov) as u8)
+        Color32::from_black_alpha((6.0 + 8.0 * phov) as u8)
     };
-    let pill_p = trench_ui.painter();
-    pill_p.rect_filled(pill_rect.translate(vec2(0.0, 1.0)), 7.0, Color32::from_black_alpha(if dark { 40 } else { 10 }));
-    pill_p.rect_filled(pill_rect, 7.0, pill_bg);
-    let pill_stroke = if dark { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(14) };
-    pill_p.rect_stroke(pill_rect, 7.0, Stroke::new(0.5, pill_stroke), egui::StrokeKind::Inside);
+    let pill_p = ui.painter();
+    pill_p.rect_filled(pill_rect.translate(vec2(0.0, 1.2)), 6.0, Color32::from_black_alpha(if dark { 50 } else { 12 }));
+    pill_p.rect_filled(pill_rect, 6.0, pill_bg);
+    let pill_stroke = if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) };
+    pill_p.rect_stroke(pill_rect, 6.0, Stroke::new(0.5, pill_stroke), egui::StrokeKind::Inside);
     pill_p.text(
         Pos2::new(pill_rect.min.x + 9.0, pill_rect.center().y),
         egui::Align2::LEFT_CENTER,
@@ -790,16 +824,33 @@ fn draw_sunken_composer(
     let chevron_fg = if dark { Color32::from_gray(160) } else { Color32::from_gray(100) };
     paint_chevron_down(pill_p, chevron_pos, 6.0, Stroke::new(1.2, chevron_fg));
 
-    let popup_id = trench_ui.make_persistent_id("agent_selector_popup");
-    let mut is_popup_open = trench_ui.data(|d| d.get_temp::<bool>(popup_id).unwrap_or(false));
+    let popup_id = ui.make_persistent_id("agent_selector_popup");
+    let mut is_popup_open = ui.data(|d| d.get_temp::<bool>(popup_id).unwrap_or(false));
     if pill_resp.clicked() {
         is_popup_open = !is_popup_open;
-        trench_ui.data_mut(|d| d.insert_temp(popup_id, is_popup_open));
+        ui.data_mut(|d| d.insert_temp(popup_id, is_popup_open));
     }
 
-    if state.reply.is_some() && vector_tool_button(&mut trench_ui, ToolIcon::Close, "取消回复指定消息") {
-        state.reply = None;
-    }
+    let left_end_x = if state.reply.is_some() {
+        let cancel_rect = Rect::from_min_size(
+            Pos2::new(pill_rect.max.x + 4.0, inner_rect.center().y - 12.0),
+            vec2(24.0, 24.0),
+        );
+        let c_resp = ui.interact(cancel_rect, Id::new("cancel_reply_btn"), Sense::click());
+        let c_hov = ui.ctx().animate_bool(c_resp.id.with("hov"), c_resp.hovered());
+        let cp = ui.painter();
+        cp.rect_filled(cancel_rect.translate(vec2(0.0, 1.2)), 5.0, Color32::from_black_alpha(if dark { 40 } else { 12 }));
+        cp.rect_filled(cancel_rect, 5.0, if dark { Color32::from_white_alpha((6.0 + 8.0 * c_hov) as u8) } else { Color32::from_black_alpha((6.0 + 8.0 * c_hov) as u8) });
+        cp.rect_stroke(cancel_rect, 5.0, Stroke::new(0.5, if dark { Color32::from_white_alpha(8) } else { Color32::from_black_alpha(10) }), egui::StrokeKind::Inside);
+        let fg = if c_hov > 0.01 { if dark { Color32::WHITE } else { Color32::BLACK } } else { Color32::from_gray(140) };
+        paint_close_x(cp, cancel_rect.center(), 6.0, Stroke::new(1.2, fg));
+        if c_resp.on_hover_text("取消回复指定消息").clicked() {
+            state.reply = None;
+        }
+        cancel_rect.max.x + 6.0
+    } else {
+        pill_rect.max.x + 6.0
+    };
 
     // 浮层菜单
     if is_popup_open {
@@ -811,7 +862,7 @@ fn draw_sunken_composer(
         egui::Area::new(popup_id)
             .order(egui::Order::Foreground)
             .fixed_pos(popup_pos)
-            .show(trench_ui.ctx(), |ui| {
+            .show(ui.ctx(), |ui| {
                 let frame_bg = if dark { Color32::from_rgb(26, 26, 32) } else { Color32::from_rgb(245, 245, 248) };
                 let frame_stroke = Stroke::new(0.5, if dark { Color32::from_white_alpha(15) } else { Color32::from_black_alpha(15) });
                 egui::Frame::NONE
@@ -858,21 +909,30 @@ fn draw_sunken_composer(
                     });
             });
 
-        if trench_ui.ctx().input(|i| i.pointer.any_click()) && !pill_resp.clicked() {
-            trench_ui.data_mut(|d| d.insert_temp(popup_id, false));
+        if ui.ctx().input(|i| i.pointer.any_click()) && !pill_resp.clicked() {
+            ui.data_mut(|d| d.insert_temp(popup_id, false));
         }
     }
 
-    // 6. 右侧按键与状态预留宽度
-    let right_reserved_w = if state.is_running() { 160.0 } else { 42.0 };
-    let edit_w = (trench_ui.available_width() - right_reserved_w).max(40.0);
+    // 4. 中间：严格限制在 left_end_x 与 right_boundary 之间的极简输入框
+    let edit_rect = Rect::from_min_max(
+        Pos2::new(left_end_x, inner_rect.min.y),
+        Pos2::new(right_boundary, inner_rect.max.y),
+    );
+    let edit_w = (edit_rect.width() - 4.0).max(40.0);
 
-    // 7. 中间：无边框流式极简输入框（回车发送，Shift+Enter 换行）
-    let edit_id = trench_ui.make_persistent_id("chat_composer_body_input");
-    let has_focus = trench_ui.memory(|m| m.has_focus(edit_id));
-    let shift_down = trench_ui.input(|i| i.modifiers.shift);
+    let mut edit_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt("sunken_edit_container")
+            .max_rect(edit_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+
+    let edit_id = edit_ui.make_persistent_id("chat_composer_body_input");
+    let has_focus = edit_ui.memory(|m| m.has_focus(edit_id));
+    let shift_down = edit_ui.input(|i| i.modifiers.shift);
     let enter_pressed = if has_focus && !shift_down {
-        trench_ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        edit_ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
     } else {
         false
     };
@@ -885,7 +945,7 @@ fn draw_sunken_composer(
         .hint_text("输入任务或指令… (Enter 发送，Shift+Enter 换行)")
         .frame(egui::Frame::NONE)
         .margin(vec2(4.0, 2.0));
-    trench_ui.add(text_edit);
+    edit_ui.add(text_edit);
 
     if enter_pressed {
         while state.body.ends_with('\n') || state.body.ends_with('\r') {
@@ -896,9 +956,15 @@ fn draw_sunken_composer(
         }
     }
 
-    // 8. 右侧操作按键（运行中终止 / 就绪发送）
-    if state.is_running() {
-        trench_ui.add(
+    // 5. 右侧状态展示（若执行中）
+    if let Some(s_rect) = status_rect {
+        let mut status_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("sunken_status_label")
+                .max_rect(s_rect)
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
+        );
+        status_ui.add(
             egui::Label::new(
                 RichText::new(&state.execution_status)
                     .small()
@@ -906,53 +972,57 @@ fn draw_sunken_composer(
             )
             .truncate(),
         ).on_hover_text(&state.execution_status);
+    }
 
-        let (c_rect, c_resp) = trench_ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-        let c_hov = trench_ui.ctx().animate_bool(c_resp.id.with("hov"), c_resp.hovered());
-        let c_bg = Color32::from_rgba_unmultiplied(220, 80, 70, (40.0 + 30.0 * c_hov) as u8);
-        let cp = trench_ui.painter();
-        cp.rect_filled(c_rect, 14.0, c_bg);
-        paint_stop_square(cp, c_rect.center(), 8.0, Color32::from_rgb(240, 100, 90));
+    // 6. 右侧操作按键（运行中终止 / 就绪发送）——质感全面对齐主界面 Workspace
+    if state.is_running() {
+        let c_resp = ui.interact(right_btn_rect, Id::new("composer_stop_btn"), Sense::click());
+        let c_hov = ui.ctx().animate_bool(c_resp.id.with("hov"), c_resp.hovered());
+        let c_bg = Color32::from_rgba_unmultiplied(220, 70, 70, (40.0 + 30.0 * c_hov) as u8);
+        let c_stroke = Color32::from_rgb(235, 80, 80).gamma_multiply(0.65);
+        let cp = ui.painter();
+        cp.rect_filled(right_btn_rect.translate(vec2(0.0, 1.5)), 6.0, Color32::from_black_alpha(if dark { 60 } else { 15 }));
+        cp.rect_filled(right_btn_rect, 6.0, c_bg);
+        cp.rect_stroke(right_btn_rect, 6.0, Stroke::new(0.5, c_stroke), egui::StrokeKind::Inside);
+        paint_stop_square(cp, right_btn_rect.center(), 8.0, Color32::from_rgb(240, 100, 90));
         if c_resp.on_hover_text("取消协作任务").clicked() {
             action = Some(Action::Cancel);
         }
     } else {
         let can_send = !state.body.trim().is_empty();
-        let (s_rect, s_resp) = trench_ui.allocate_exact_size(vec2(28.0, 28.0), if can_send { Sense::click() } else { Sense::hover() });
-        let s_hov = trench_ui.ctx().animate_bool(s_resp.id.with("hov"), s_resp.hovered() && can_send);
-        let sp = trench_ui.painter();
+        let s_resp = ui.interact(right_btn_rect, Id::new("composer_send_btn"), if can_send { Sense::click() } else { Sense::hover() });
+        let s_hov = ui.ctx().animate_bool(s_resp.id.with("hov"), s_resp.hovered() && can_send);
+        let sp = ui.painter();
 
         let s_bg = if can_send {
             if dark {
-                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (180.0 + 60.0 * s_hov) as u8)
+                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (45.0 + 20.0 * s_hov) as u8)
             } else {
-                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (200.0 + 55.0 * s_hov) as u8)
+                Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], (28.0 + 15.0 * s_hov) as u8)
             }
         } else if dark {
-            Color32::from_white_alpha(10)
+            Color32::from_white_alpha(5)
         } else {
             Color32::from_black_alpha(8)
         };
-        sp.rect_filled(s_rect.translate(vec2(0.0, 1.0)), 14.0, Color32::from_black_alpha(if dark { 40 } else { 10 }));
-        sp.rect_filled(s_rect, 14.0, s_bg);
         let s_stroke_c = if can_send {
-            Color32::TRANSPARENT
+            Color32::from_rgb(custom_color[0], custom_color[1], custom_color[2]).gamma_multiply(0.65)
         } else if dark {
-            Color32::from_white_alpha(12)
+            Color32::from_white_alpha(8)
         } else {
-            Color32::from_black_alpha(12)
+            Color32::from_black_alpha(10)
         };
-        if s_stroke_c != Color32::TRANSPARENT {
-            sp.rect_stroke(s_rect, 14.0, Stroke::new(0.5, s_stroke_c), egui::StrokeKind::Inside);
-        }
+        sp.rect_filled(right_btn_rect.translate(vec2(0.0, 1.5)), 6.0, Color32::from_black_alpha(if dark { 60 } else { 15 }));
+        sp.rect_filled(right_btn_rect, 6.0, s_bg);
+        sp.rect_stroke(right_btn_rect, 6.0, Stroke::new(0.5, s_stroke_c), egui::StrokeKind::Inside);
         let s_fg = if can_send {
-            Color32::WHITE
+            if dark { Color32::WHITE } else { Color32::BLACK }
         } else if dark {
             Color32::from_gray(140)
         } else {
             Color32::from_gray(120)
         };
-        paint_send_arrow(sp, s_rect.center(), 10.0, Stroke::new(1.4, s_fg));
+        paint_send_arrow(sp, right_btn_rect.center(), 10.0, Stroke::new(1.3, s_fg));
         if can_send && s_resp.on_hover_text("发送任务 (Enter)").clicked() {
             action = Some(Action::Send);
         }
@@ -1137,6 +1207,11 @@ pub fn show(ui: &mut Ui, state: &mut ChatState, theme: &crate::config::ThemeSett
     let cards_area = term_rect.shrink2(vec2(card_pad_x, card_pad_y));
 
     let members: Vec<_> = round.participants.iter().filter(|p| p.id != "user").collect();
+    if state.active_terminal_agent.as_ref().map_or(true, |id| !members.iter().any(|m| &m.id == id)) {
+        if let Some(first) = members.first() {
+            state.active_terminal_agent = Some(first.id.clone());
+        }
+    }
     let mut terminal_ui = ui.new_child(
         egui::UiBuilder::new()
             .id_salt(("agents", &round.id))

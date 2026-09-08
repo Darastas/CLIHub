@@ -269,14 +269,21 @@ pub fn show(
     input_enabled: bool,
     theme: &TermTheme,
 ) -> Option<TerminalAction> {
-    show_impl(ui, session, input_enabled, theme, false)
+    show_impl(ui, session, input_enabled, theme, false, true)
 }
 
-pub fn show_embedded(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &TermTheme) {
-    show_impl(ui, session, input_enabled, theme, true);
+pub fn show_embedded(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &TermTheme, is_active: bool) {
+    show_impl(ui, session, input_enabled, theme, true, is_active);
 }
 
-fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &TermTheme, embedded: bool) -> Option<TerminalAction> {
+fn show_impl(
+    ui: &mut Ui,
+    session: &mut Session,
+    input_enabled: bool,
+    theme: &TermTheme,
+    embedded: bool,
+    is_active: bool,
+) -> Option<TerminalAction> {
     let mut action = None;
 
     if !embedded {
@@ -694,14 +701,22 @@ fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &Te
         let find_input_id = ui.id().with("find_input");
         let find_input_focused = ui.memory(|m| m.has_focus(find_input_id));
 
-        // 点击终端区域时获取焦点；搜索栏未打开且未聚焦搜索框时才自动维持终端焦点
+        // 点击终端区域时获取焦点；未打开搜索栏且未聚焦搜索框时维持终端焦点
         if resp.clicked() {
             resp.request_focus();
-        } else if !embedded && input_enabled && !resp.has_focus() && !is_search_open && !find_input_focused {
-            resp.request_focus();
+        } else if input_enabled && !is_search_open && !find_input_focused {
+            if !embedded && !resp.has_focus() {
+                resp.request_focus();
+            } else if embedded && is_active && !resp.has_focus() {
+                resp.request_focus();
+            }
         }
         let window_focused = ui.input(|i| i.focused);
-        let focused = resp.has_focus() && window_focused && !find_input_focused;
+        let focused = if embedded {
+            is_active && window_focused && !find_input_focused
+        } else {
+            resp.has_focus() && window_focused && !find_input_focused
+        };
 
         // 动态计算行列数（嵌入模式下精简留白，顶端对齐终端行）
         let min_margin_x = if embedded { 8.0f32 } else { 12.0f32 };

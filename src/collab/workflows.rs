@@ -39,6 +39,7 @@ pub struct ChatState {
     pub theme: crate::ui::terminal::TermTheme,
     pub chat_expanded: bool,
     pub sidebar_expanded: bool,
+    pub active_terminal_agent: Option<String>,
     automation: Option<Automation>,
 }
 
@@ -71,6 +72,7 @@ impl ChatState {
             theme: crate::ui::terminal::TermTheme::from_scheme("One Half Dark"),
             chat_expanded: false,
             sidebar_expanded: true,
+            active_terminal_agent: None,
             automation: None,
         };
         if let Err(e) = state.load() {
@@ -107,6 +109,11 @@ impl ChatState {
                 .find(|p| p.id != "user")
                 .map(|p| p.id.clone())
                 .unwrap_or_default();
+            self.active_terminal_agent = if !self.recipient.is_empty() {
+                Some(self.recipient.clone())
+            } else {
+                None
+            };
             self.refresh()?;
         }
         Ok(())
@@ -151,6 +158,11 @@ impl ChatState {
             .find(|p| p.id != "user")
             .map(|p| p.id.clone())
             .unwrap_or_default();
+        self.active_terminal_agent = if !self.recipient.is_empty() {
+            Some(self.recipient.clone())
+        } else {
+            None
+        };
         self.active = Some(index);
         self.reply = None;
         self.body.clear();
