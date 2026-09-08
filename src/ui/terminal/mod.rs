@@ -668,13 +668,19 @@ fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &Te
     let (col_w, row_h) = ui.fonts_mut(|f| (f.glyph_width(&font_id, ' '), f.row_height(&font_id)));
 
     // ---- 终端区域 ----
-    let term_size = vec2(
-        ui.available_width() - 24.0, // 外边距
-        (ui.available_height() - 12.0).max(60.0),
-    );
+    let term_size = if embedded {
+        ui.available_size()
+    } else {
+        vec2(
+            ui.available_width() - 24.0, // 外边距
+            (ui.available_height() - 12.0).max(60.0),
+        )
+    };
 
     ui.horizontal(|ui| {
-        ui.add_space(12.0); // 左外边距
+        if !embedded {
+            ui.add_space(12.0); // 左外边距
+        }
         let (term_rect, resp) = ui.allocate_exact_size(term_size, Sense::click_and_drag());
         ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("term_bottom_y"), term_rect.max.y));
 
@@ -691,9 +697,9 @@ fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &Te
         let window_focused = ui.input(|i| i.focused);
         let focused = resp.has_focus() && window_focused && !find_input_focused;
 
-        // 动态计算行列数并平分像素余数，保证上下左右 100% 绝对居中对称
-        let min_margin_x = 12.0f32;
-        let min_margin_y = 8.0f32;
+        // 动态计算行列数（嵌入模式下精简留白，顶端对齐终端行）
+        let min_margin_x = if embedded { 8.0f32 } else { 12.0f32 };
+        let min_margin_y = if embedded { 4.0f32 } else { 8.0f32 };
         let avail_w = (term_rect.width() - min_margin_x * 2.0).max(col_w);
         let avail_h = (term_rect.height() - min_margin_y * 2.0).max(row_h);
         let cols = ((avail_w / col_w).floor().max(1.0)) as u16;
@@ -702,28 +708,30 @@ fn show_impl(ui: &mut Ui, session: &mut Session, input_enabled: bool, theme: &Te
         let grid_w = cols as f32 * col_w;
         let grid_h = rows as f32 * row_h;
         let pad_x = ((term_rect.width() - grid_w) / 2.0).max(min_margin_x);
-        let pad_y = ((term_rect.height() - grid_h) / 2.0).max(min_margin_y);
+        let pad_y = if embedded { min_margin_y } else { ((term_rect.height() - grid_h) / 2.0).max(min_margin_y) };
 
         let grid_rect = Rect::from_min_size(
             term_rect.min + vec2(pad_x, pad_y),
             vec2(grid_w, grid_h),
         );
 
-        // 背景 + 圆角
+        // 背景 + 圆角（嵌入模式下卡片本身已有圆角和底色，不重复绘制内层边框）
         let painter = ui.painter().with_clip_rect(term_rect);
-        painter.rect_filled(term_rect, 10.0, theme.background);
+        if !embedded {
+            painter.rect_filled(term_rect, 10.0, theme.background);
 
-        let border = if theme.is_dark() {
-            Color32::from_rgb(60, 60, 60)
-        } else {
-            Color32::from_rgb(226, 232, 240)
-        };
-        let stroke = if focused {
-            egui::Stroke::new(1.5, theme.cursor)
-        } else {
-            egui::Stroke::new(1.0, border)
-        };
-        painter.rect_stroke(term_rect, 10.0, stroke, egui::StrokeKind::Inside);
+            let border = if theme.is_dark() {
+                Color32::from_rgb(60, 60, 60)
+            } else {
+                Color32::from_rgb(226, 232, 240)
+            };
+            let stroke = if focused {
+                egui::Stroke::new(1.5, theme.cursor)
+            } else {
+                egui::Stroke::new(1.0, border)
+            };
+            painter.rect_stroke(term_rect, 10.0, stroke, egui::StrokeKind::Inside);
+        }
 
         // 激活标签页
         let active_tab = session.active_tab;

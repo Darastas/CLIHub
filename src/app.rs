@@ -442,7 +442,13 @@ impl HubApp {
                 self.overview_session = None;
             }
         }
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::A)) { self.collaboration_open = !self.collaboration_open; }
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::A)) {
+            self.collaboration_open = !self.collaboration_open;
+            if self.collaboration_open {
+                self.chat.theme = self.build_theme();
+                self.chat.ensure_current_runs_open();
+            }
+        }
 
         // 自定义无边框标题栏（占用顶部，面板自动下移）
         if titlebar::show(ui) {
@@ -491,7 +497,11 @@ impl HubApp {
             self.settings_draft = self.config.theme.clone();
             self.show_settings = true;
         }
-        if side.agent_chat { self.collaboration_open = true; }
+        if side.agent_chat {
+            self.collaboration_open = true;
+            self.chat.theme = self.build_theme();
+            self.chat.ensure_current_runs_open();
+        }
         if side.select.is_some() || side.toggle_overview { self.collaboration_open = false; }
         if let Some(idx) = side.edit {
             if let Some(s) = self.sessions.get(idx) {
