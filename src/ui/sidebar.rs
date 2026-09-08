@@ -385,7 +385,7 @@ pub fn show(
     let chat_bg = if chat_active { Color32::from_rgba_unmultiplied(custom_color[0], custom_color[1], custom_color[2], 50) } else if dark { Color32::from_white_alpha(if chat_resp.hovered() { 14 } else { 6 }) } else { Color32::from_black_alpha(if chat_resp.hovered() { 14 } else { 6 }) };
     p.rect_filled(chat_rect.translate(vec2(0.0, 1.0)), 8.0, if dark { Color32::from_black_alpha(50) } else { Color32::from_black_alpha(12) });
     p.rect_filled(chat_rect, 8.0, chat_bg);
-    p.text(chat_rect.center(), Align2::CENTER_CENTER, "◉  Agent Chat", FontId::proportional(12.0), text(dark));
+    p.text(chat_rect.center(), Align2::CENTER_CENTER, "Agent Chat", FontId::proportional(12.0), text(dark));
     if chat_resp.on_hover_text("打开 Agent Chat").clicked() { action.agent_chat = true; }
 
 

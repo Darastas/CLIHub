@@ -40,6 +40,7 @@ pub struct ChatState {
     pub chat_expanded: bool,
     pub sidebar_expanded: bool,
     pub active_terminal_agent: Option<String>,
+    pub search_state: crate::state::session::SearchState,
     automation: Option<Automation>,
 }
 
@@ -73,6 +74,7 @@ impl ChatState {
             chat_expanded: false,
             sidebar_expanded: true,
             active_terminal_agent: None,
+            search_state: crate::state::session::SearchState::default(),
             automation: None,
         };
         if let Err(e) = state.load() {
