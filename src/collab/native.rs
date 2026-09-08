@@ -13,6 +13,48 @@ pub struct NativeRun {
     cancelled: bool,
 }
 
+fn find_helper() -> Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    let mut helper = exe.with_file_name("clihub-agent.exe");
+    if !helper.is_file() && exe.parent().is_some_and(|p| p.ends_with("deps")) {
+        helper = exe.parent().unwrap().parent().unwrap().join("clihub-agent.exe");
+    }
+    if !helper.is_file() {
+        let debug_h = PathBuf::from("target/debug/clihub-agent.exe");
+        if debug_h.is_file() {
+            return Ok(debug_h);
+        }
+        let release_h = PathBuf::from("target/release/clihub-agent.exe");
+        if release_h.is_file() {
+            return Ok(release_h);
+        }
+    }
+    anyhow::ensure!(helper.is_file(), "缺少配套信箱工具：{}", helper.display());
+    Ok(helper)
+}
+
+fn write_mcp_config(cwd: &Path, helper: &Path, dir: &Path, agent: &str) {
+    let mcp_path = cwd.join(".mcp.json");
+    let server_entry = serde_json::json!({
+        "command": helper.display().to_string(),
+        "args": ["mcp", "--room", dir.display().to_string(), "--agent", agent]
+    });
+
+    let mut config = if let Ok(content) = fs::read_to_string(&mcp_path) {
+        serde_json::from_str::<serde_json::Value>(&content).unwrap_or_else(|_| serde_json::json!({"mcpServers": {}}))
+    } else {
+        serde_json::json!({"mcpServers": {}})
+    };
+
+    if let Some(servers) = config.get_mut("mcpServers").and_then(|s| s.as_object_mut()) {
+        servers.insert("clihub".to_string(), server_entry);
+    } else {
+        config["mcpServers"] = serde_json::json!({ "clihub": server_entry });
+    }
+
+    let _ = fs::write(mcp_path, serde_json::to_string_pretty(&config).unwrap_or_default());
+}
+
 impl NativeRun {
     #[cfg(test)]
     pub fn preview(round: &str, agent: &str, name: &str) -> Self {
@@ -27,12 +69,8 @@ impl NativeRun {
 
     pub fn start(command: &str, cwd: &Path, dir: &Path, round: &str, agent: &str, name: &str, request: &str, prompt: String, theme: &TermTheme) -> Result<Self> {
         let (program, mut args) = runner::interactive_command(command)?;
-        let exe = std::env::current_exe()?;
-        let mut helper = exe.with_file_name("clihub-agent.exe");
-        if !helper.is_file() && exe.parent().is_some_and(|p| p.ends_with("deps")) {
-            helper = exe.parent().unwrap().parent().unwrap().join("clihub-agent.exe");
-        }
-        anyhow::ensure!(helper.is_file(), "缺少配套信箱工具：{}", helper.display());
+        let helper = find_helper()?;
+        write_mcp_config(cwd, &helper, dir, agent);
         let tasks = dir.join("tasks");
         fs::create_dir_all(&tasks)?;
         let task = tasks.join(format!("{request}.md"));
@@ -40,17 +78,22 @@ impl NativeRun {
         let quote = |p: &Path| format!("'{}'", p.display().to_string().replace('\'', "''"));
         let prompt = format!(
             "{prompt}\n\n\
-            ## 协同交接协议（必须执行）\n\
-            完成本次职责后，将可交接的最终回复与工作总结写入 UTF-8 Markdown 文件 `{}`，并在终端中通过 PowerShell 运行以下命令完成投递：\n\
-            ```powershell\n\
-            & {} send --room {} --from '{}' --to user --reply-to '{}' --body-file {}\n\
-            ```\n\
-            > 提示：提交之后不要再对代码库做无关修改。若任务已彻底完成且不需要后续角色跟进，请在回复文件末尾单独一行附上 `[WORKFLOW_COMPLETE]`。\n",
+            ## 协同交接协议（推荐使用原生 MCP 工具，亦支持命令行保底）\n\
+            1. **MCP 原生交接（强烈推荐）**：\n\
+               若当前客户端支持 MCP，可直接调用工具：\n\
+               - `collab_get_task()`：查看本次待办任务、团队目标与历史交接。\n\
+               - `collab_finish_step(summary, is_complete)`：结构化提交工作总结，自动交接给下一位角色。若全部目标彻底达成且无需后续角色跟进，设置 `is_complete` 为 `true`。\n\
+            2. **命令行交接（保底）**：\n\
+               亦可将可交接的最终回复写入 UTF-8 Markdown 文件 `{}`，并在终端中通过 PowerShell 运行以下命令完成投递：\n\
+               ```powershell\n\
+               & {} send --room {} --from '{}' --to user --reply-to '{}' --body-file {}\n\
+               ```\n\
+               > 提示：若使用命令行交接，当任务已彻底完成且不需要后续角色跟进时，请在回复文件末尾单独一行附上 `[WORKFLOW_COMPLETE]`。\n",
             body.display(), quote(&helper), quote(dir), agent, request, quote(&body)
         );
         let prompt = format!(
             "<!-- 接收确认说明 -->\n\
-            开始工作前请先确认接收任务，在 PowerShell 中执行：\n\
+            开始工作前请确认接收任务（若使用 MCP，调用 collab_get_task 即可自动确认；若在命令行执行可运行）：\n\
             ```powershell\n\
             & {} read --room {} --agent '{}' --message '{}'\n\
             ```\n\n\
@@ -59,7 +102,10 @@ impl NativeRun {
         );
         fs::write(&task, prompt)?;
         let kind = runner::detect(command)?;
-        let task_instruction = format!("请阅读任务说明规范文件 '{}' 并执行相应职责与协同交接。", task.display());
+        let task_instruction = format!(
+            "【协同任务】请执行职责。支持 MCP 可直接调用 collab_get_task / collab_finish_step 自动交接，或查阅规范文件 '{}'。",
+            task.display()
+        );
         match kind {
             runner::Kind::Codex => {
                 args.push("--no-alt-screen".into());
@@ -119,6 +165,9 @@ impl NativeRun {
 
     /// 打开 Agent 交互终端（默认打开状态，供用户选择模型、配置 skill、交互调试）
     pub fn open_interactive(command: &str, cwd: &Path, dir: &Path, round: &str, agent: &str, name: &str, theme: &TermTheme) -> Self {
+        if let Ok(helper) = find_helper() {
+            write_mcp_config(cwd, &helper, dir, agent);
+        }
         let mut session = Session::new(0, name, command, cwd.to_path_buf());
         let mut tab = TerminalInstance::new();
         let mut terminal = Terminal::new(70, 30, theme.to_theme_colors());
@@ -169,13 +218,9 @@ impl NativeRun {
     }
 
     /// 向已启动的交互终端直接投递任务与协同指令，保留用户已选的模型与会话上下文
-    pub fn dispatch(&mut self, _command: &str, _cwd: &Path, dir: &Path, request: &str, prompt: String) -> Result<()> {
-        let exe = std::env::current_exe()?;
-        let mut helper = exe.with_file_name("clihub-agent.exe");
-        if !helper.is_file() && exe.parent().is_some_and(|p| p.ends_with("deps")) {
-            helper = exe.parent().unwrap().parent().unwrap().join("clihub-agent.exe");
-        }
-        anyhow::ensure!(helper.is_file(), "缺少配套信箱工具：{}", helper.display());
+    pub fn dispatch(&mut self, _command: &str, cwd: &Path, dir: &Path, request: &str, prompt: String) -> Result<()> {
+        let helper = find_helper()?;
+        write_mcp_config(cwd, &helper, dir, &self.agent);
         let tasks = dir.join("tasks");
         fs::create_dir_all(&tasks)?;
         let task = tasks.join(format!("{request}.md"));
@@ -183,17 +228,22 @@ impl NativeRun {
         let quote = |p: &Path| format!("'{}'", p.display().to_string().replace('\'', "''"));
         let prompt_file_content = format!(
             "{prompt}\n\n\
-            ## 协同交接协议（必须执行）\n\
-            完成本次职责后，将可交接的最终回复与工作总结写入 UTF-8 Markdown 文件 `{}`，并在终端中通过 PowerShell 运行以下命令完成投递：\n\
-            ```powershell\n\
-            & {} send --room {} --from '{}' --to user --reply-to '{}' --body-file {}\n\
-            ```\n\
-            > 提示：提交之后不要再对代码库做无关修改。若任务已彻底完成且不需要后续角色跟进，请在回复文件末尾单独一行附上 `[WORKFLOW_COMPLETE]`。\n",
+            ## 协同交接协议（推荐使用原生 MCP 工具，亦支持命令行保底）\n\
+            1. **MCP 原生交接（强烈推荐）**：\n\
+               若当前客户端支持 MCP，可直接调用工具：\n\
+               - `collab_get_task()`：查看本次待办任务、团队目标与历史交接。\n\
+               - `collab_finish_step(summary, is_complete)`：结构化提交工作总结，自动交接给下一位角色。若全部目标彻底达成且无需后续角色跟进，设置 `is_complete` 为 `true`。\n\
+            2. **命令行交接（保底）**：\n\
+               亦可将可交接的最终回复写入 UTF-8 Markdown 文件 `{}`，并在终端中通过 PowerShell 运行以下命令完成投递：\n\
+               ```powershell\n\
+               & {} send --room {} --from '{}' --to user --reply-to '{}' --body-file {}\n\
+               ```\n\
+               > 提示：若使用命令行交接，当任务已彻底完成且不需要后续角色跟进时，请在回复文件末尾单独一行附上 `[WORKFLOW_COMPLETE]`。\n",
             body.display(), quote(&helper), quote(dir), self.agent, request, quote(&body)
         );
         let prompt_file_content = format!(
             "<!-- 接收确认说明 -->\n\
-            开始工作前请先确认接收任务，在 PowerShell 中执行：\n\
+            开始工作前请确认接收任务（若使用 MCP，调用 collab_get_task 即可自动确认；若在命令行执行可运行）：\n\
             ```powershell\n\
             & {} read --room {} --agent '{}' --message '{}'\n\
             ```\n\n\
@@ -214,7 +264,10 @@ impl NativeRun {
         }
         if let Some(pty) = &mut tab.pty {
             if tab.alive.load(Ordering::Relaxed) {
-                let instruction = format!("请阅读任务说明规范文件 '{}' 并执行相应职责与协同交接。\r\n", task.display());
+                let instruction = format!(
+                    "【协同任务已派发】\r\n- 支持 MCP（推荐）：直接调用 `collab_get_task()` 查看任务，完成后调用 `collab_finish_step(summary, is_complete)` 自动交接。\r\n- 规范文件已生成：{}\r\n请立即开始执行职责。\r\n",
+                    task.display()
+                );
                 pty.write(instruction.as_bytes())?;
                 self.request = request.into();
                 self.status = "已指派任务 · 执行中".into();

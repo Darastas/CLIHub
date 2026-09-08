@@ -1,5 +1,7 @@
 #[path = "../collab/store.rs"]
 mod store;
+#[path = "../collab/mcp.rs"]
+mod mcp;
 use anyhow::{anyhow, Result};
 use std::{
     env, fs,
@@ -12,7 +14,7 @@ fn val(args: &[String], k: &str) -> Option<String> {
 fn main() -> Result<()> {
     let a: Vec<String> = env::args().collect();
     if a.len() == 1 || a.iter().any(|x| x == "--help" || x == "-h") {
-        println!("CLIHub Agent Mailbox\n\nOpen clihub.exe for the Agent Chat window.\n\nCommands:\n  list --room DIR\n  inbox --room DIR --agent ID [--unread]\n  send --room DIR --from ID --to ID --body-file FILE [--reply-to ID]\n  read --room DIR --agent ID --message ID\n\nGet the room directory from Agent Chat in CLIHub.");
+        println!("CLIHub Agent Mailbox & MCP Server\n\nOpen clihub.exe for the Agent Chat window.\n\nCommands:\n  mcp --room DIR --agent ID\n  list --room DIR\n  inbox --room DIR --agent ID [--unread]\n  send --room DIR --from ID --to ID --body-file FILE [--reply-to ID]\n  read --room DIR --agent ID --message ID\n\nGet the room directory from Agent Chat in CLIHub.");
         if a.len() == 1 && io::stdin().is_terminal() {
             println!("\nPress Enter to close.");
             let mut s = String::new();
@@ -21,8 +23,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let room = val(&a, "--room").ok_or_else(|| anyhow!("--room DIR required"))?;
-    let s = Store::new(room)?;
+    let s = Store::new(&room)?;
     match a.get(1).map(String::as_str) {
+        Some("mcp") => {
+            let agent = val(&a, "--agent").ok_or_else(|| anyhow!("--agent required"))?;
+            mcp::run_mcp_server(io::stdin().lock(), io::stdout().lock(), room, &agent)?;
+        }
         Some("list") => println!("{}", serde_json::to_string_pretty(&s.load_round()?)?),
         Some("inbox") => {
             for m in s.messages(
