@@ -318,6 +318,21 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    fn resolve_command_with_spaces() {
+        let dir = std::env::temp_dir().join(format!("clihub resolve space {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("command with spaces.exe");
+        std::fs::copy(Path::new(&std::env::var("SystemRoot").unwrap()).join("System32/cmd.exe"), &exe).unwrap();
+        let args = vec!["/D".into(), "/C".into(), "echo CLIHUB_SPACE_OK".into()];
+        let (program, actual_args) = resolve_command(&exe.to_string_lossy(), &args);
+        assert_eq!(program, exe.to_string_lossy());
+        assert_eq!(actual_args, args);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "starts interactive ConPTY in headless CI"]
     fn executable_path_with_spaces_starts_in_pty() {
         let dir = std::env::temp_dir().join(format!("clihub executable space {}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
