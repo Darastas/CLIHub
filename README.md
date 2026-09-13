@@ -62,6 +62,11 @@ CLIHub solves this by offering:
 - 📝 **Session Modal with Debossed Intaglio Inputs & Raised Buttons**: Sunken trench text fields with top inset shadow and bottom lip highlight paired with raised themed card buttons.
 - 💎 **Pure Transparent High-Res Application Icon**: Rebuilt 32-bit RGBA icons with 1-bit AND transparency masks and scaled up geometry (93% canvas fill) for Windows Taskbar and Explorer.
 - 🛡️ **Double-Press Ctrl+C Protection** — Sidebar bottom neutral micro-card with exact terminal bottom alignment, 150ms smooth fade-in animation, and 1.8s tolerance window.
+- 🤖 **Agent Chat & Multi-Agent Collaboration** — Native collaborative workflow engine orchestrating multiple AI CLI agents (Codex, Claude, etc.):
+  - **Embedded Terminal Cards**: Real-time ConPTY processes rendered via CLIHub's Alacritty engine side-by-side with independent focus and scroll history.
+  - **Sunken Debossed Composer**: Minimalist prompt editor with dynamic auto-expanding layout, dedicated recipient picker, and glowing focus borders.
+  - **Autonomous Mailbox Protocol**: Accompanying `clihub-agent.exe` tool and mailbox file exchange format (`inbox`, `send`, `list`) allowing agents to pick up tasks and hand off deliverables autonomously.
+  - **Model Context Protocol (MCP) Bridge**: Embedded standard MCP server for seamless agent tool-calling integration.
 - 💾 **Instant Persistence** — All workspaces, color preferences, and theme modes are saved in real-time and restored on next launch.
 
 ### Usage
@@ -106,6 +111,16 @@ cargo build --release  # Release build
 ```
 
 ### Releases & Changelog
+
+#### v1.4.0
+- **Agent Chat & Multi-Agent Collaboration Engine**:
+  - Native embedded terminal cards displaying live interactive sessions for multiple AI agents side-by-side with full scrollback and selection copying.
+  - Sunken debossed composer maintaining the sleek intaglio design language, adaptive multi-line layout, and recipient selector.
+  - Autonomous mailbox exchange protocol via `clihub-agent.exe` CLI tool and embedded Model Context Protocol (MCP) server bridge.
+  - Complete terminal typing focus fix: eliminated input contention between the composer and active terminal views.
+  - Cleaned sidebar layout: removed redundant top-left plus button and empty-state placeholders.
+  - Smooth expansion/collapse animation for the `Ctrl+F` search bar.
+- **Multi-Architecture Release Packages**: Native precompiled binaries and distribution archives for Windows x64, x86 (32-bit), and ARM64.
 
 #### v1.3.0
 - **AI Multimodal Attachment Staging & Intelligent Dispatch**:

@@ -1,38 +1,26 @@
-# CLIHub v1.3.0 Release Notes
+# CLIHub v1.4.0 Release Notes
 
 ## 新增功能与改进
 
-- 📸 **多模态附件暂存区 (Multimodal Staging Area)**：
-  - 支持截图智能粘贴与任意外部图片文件拖拽注入，自动暂存为缩略图胶囊卡片；
-  - 接入基于文件头特征魔数（Magic Number）的深度嗅探与全格式解码（PNG / JPEG / WebP / BMP / GIF / ICO / TIFF），即便无扩展名也能 100% 准确识别与渲染；
-  - **一键回车智能联动**：在暂存区有待发图片且终端正在输入文本时，按下回车键自动将图片临时转存路径与终端正在输入的文本一同注入并触发一次发送，无需按两次回车；
-  - 支持单张或批量图片全屏模态 Lightbox 放大预览与一键删除。
-- ⚙️ **附件暂存区 3 种布局自由切换**：
-  - **右上角 HUD (`TopRight`)**：终端右上角半透明微缩挂件，视线自然不遮挡正文（默认推荐）；
-  - **顶部横向槽 (`TopBanner`)**：终端顶部全宽横向卡槽，支持多图横向平铺展示；
-  - **右下角悬浮 (`BottomRight`)**：右下角经典浮动胶囊。
-- 🎨 **偏好设置页面纯正卡片重构**：
-  - 100% 照搬 Workspaces 侧边栏卡片代码规范，纯净半透明圆角填充，彻底去除冗余发光描边与指示灯；
-  - 采用大尺寸卡片同比例双层立体漫反射投影（`2.5px` + `1.2px`），告别扁平感；
-  - 配色方案重构为定制卡片式选择器（`Campbell ▼`）与暗色圆角浮层选单；
-  - 独立精致外框拾色卡片，上下两排网格像素级垂直无缝对齐。
-- 📝 **新建与编辑会话模态窗【阴阳刻】虚实光影升级**：
-  - **阴刻凹槽输入框 (Debossed Sunken Trench)**：顶部背光内阴影（Top Inset Shadow）呈现向内深陷的下坠深度，底部槽口迎光发丝微亮边（Bottom Lip Highlight），内嵌无边框流式排版；
-  - **阳刻卡片按键 (Raised Card Buttons)**：双层立体落差投影 + 用户主题色半透明强调，与深凹输入框形成鲜明虚实对比。
-- 💎 **全新纯透明底与大幅饱满应用图标**：
-  - 彻底去除原有黑色方框底色，转换为平滑 Alpha 透明通道并消除边缘黑边；
-  - 主体图形等比大幅放大（从 154px 放大至 238px，占 256x256 画布 93%），饱满醒目；
-  - 重构生成包含 32 位 BGRA DIB 矩阵与 1-bit AND 透明掩码的标准 Windows 多分辨率 ICO（256/128/64/48/32/24/16），彻底修复 Windows 任务栏与资源管理器黑底问题。
-- 🧩 **高内聚低耦合模块化架构**：
-  - 严格遵守单个文件 `< 500` 行规范，模块化抽离 `src/ui/settings.rs`（374 行）、`src/ui/session_modal.rs`（286 行）与 `src/ui/image_preview/`。
+- 🤖 **Agent Chat 多智能体协作工作流 (Multi-Agent Collaboration Engine)**：
+  - **原生嵌入式多终端卡片**：在工作流中为每个参与角色独立分配基于 Windows ConPTY 的真实交互进程，Alacritty 状态机 + egui 渲染，卡片化并排展示，支持独立输入聚焦、滚轮查看历史与选区复制。
+  - **下沉式流式指令输入框 (Sunken Composer)**：延续阴阳刻极简美学，流式排版、动态自适应高度与圆角聚焦发光，支持快捷选择首位执行者、一键派发或直接回复。
+  - **全自动信箱交接协议 (Mailbox Protocol & CLI Tool)**：随附 `clihub-agent.exe` 独立信箱 CLI 工具与文件协议（`inbox`、`send`、`list`），AI Agent 能够自主拉取任务、接收上下文、提交任务产物并触发自动下一棒交接，无需人工手动搬运。
+  - **MCP Server 兼容网桥 (Model Context Protocol)**：内置标准 Model Context Protocol (MCP) 服务器实现，为兼容的 AI 客户端提供直接的信箱工具调用接口。
+- 🎨 **细节美学与交互体验精修**：
+  - **输入法与打字焦点冲突彻底修复**：重构键盘事件捕获逻辑，文本输入框打字时严格独占输入焦点，彻底解决终端或选区抢占焦点的跳变问题。
+  - **侧边栏极简高质感瘦身**：移除左上角多余的新建按钮，去除侧边栏底部的空态占位提示，保留最高密度的沉浸式极简质感。
+  - **搜索栏动态平滑过渡动画**：按下 `Ctrl+F` 呼出/关闭搜索栏时拥有平滑过渡与高质感无边框流式输入框，全面对齐终端原生视觉风格。
+- 📦 **全架构原生预编译包 (Windows x64 / x86 / ARM64)**：
+  - 针对 Windows x64、x86 (32位) 以及 ARM64 平台提供独立可执行文件及附带 `clihub-agent.exe` 协同工具的发布压缩包。
 
 ## 预编译包校验码 (SHA-256)
 
 | 文件名 | 架构 | SHA-256 校验码 |
 |:---|:---|:---|
-| clihub-v1.3.0-windows-x64.exe | Windows x64 | 030A0FECACE6E2035A23DECFD06FB9ACC537BC6C598DD59512F8AB4EC066381D |
-| clihub-v1.3.0-windows-x64.zip | Windows x64 Zip | EAC736A30678FC6BBDDB7C1F2C9C1088442C2312DBE133785CD2FFCE51CEA641 |
-| clihub-v1.3.0-windows-x86.exe | Windows x86 (32-bit) | 5CAFC6A1582628DA33B84A5DE025E71107BFB3011FD10B496317A1715F517771 |
-| clihub-v1.3.0-windows-x86.zip | Windows x86 (32-bit) Zip | CF1ECBF5920EFB0339ED40E4DCFFDE0EBC3CFE022D62CDE5BE15C3F8F210D65B |
-| clihub-v1.3.0-windows-arm64.exe | Windows ARM64 | F809673820FF1ABAF8B7BF1E9F125182907F47A0D799CFB6E59188E6E8774F76 |
-| clihub-v1.3.0-windows-arm64.zip | Windows ARM64 Zip | 38AA299892E1DA5F36CB36F3CA0BFB7BECA5405CF0CF92501438DE3A409747AD |
+| clihub-v1.4.0-windows-x64.exe | Windows x64 | 126465358CCB6EBF2B0228BB3D3E27C0841DCE67392128B684471DB88D62D129 |
+| clihub-v1.4.0-windows-x64.zip | Windows x64 Zip | 96FB772B522303B325421EBF1F1E5786F597FA028C3DDC8615AF956EB0ECDBB2 |
+| clihub-v1.4.0-windows-x86.exe | Windows x86 (32-bit) | 057FB7617011D987250787871E791EC8670B19B97708E443DE17F67EA99740E6 |
+| clihub-v1.4.0-windows-x86.zip | Windows x86 (32-bit) Zip | 81BD3450140AEDF81FC0730FDC5F26B45102923C084AA9247F15CBBFCAA100EE |
+| clihub-v1.4.0-windows-arm64.exe | Windows ARM64 | D74FCFE0FF6F303A2471E6FF46E32C5E62478600F46FD0B51EAFE872B03B736B |
+| clihub-v1.4.0-windows-arm64.zip | Windows ARM64 Zip | 2EBAB2E8F9A75A68533DEFF6F472883891988B6EF1DDE6DE3AA28700781BE9C5 |
