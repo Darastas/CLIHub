@@ -286,7 +286,7 @@ mod tests {
     use std::io::Cursor;
 
     fn setup_test_room() -> (std::path::PathBuf, Store) {
-        let tmp = std::env::temp_dir().join(format!("clihub_mcp_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let tmp = std::env::temp_dir().join(Store::new_id("mcp-test"));
         let _ = fs::create_dir_all(&tmp);
         let store = Store::new(&tmp).unwrap();
         let round = Round {
