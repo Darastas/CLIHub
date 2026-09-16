@@ -222,16 +222,60 @@ fn map_key(key: egui::Key, mods: &Modifiers) -> Option<Vec<u8>> {
         Backspace => Some(vec![0x7f]),
         Escape => Some(vec![0x1b]),
         Tab => Some(if mods.shift { b"\x1b[Z".to_vec() } else { b"\t".to_vec() }),
-        ArrowUp => Some(b"\x1b[A".to_vec()),
-        ArrowDown => Some(b"\x1b[B".to_vec()),
-        ArrowRight => Some(b"\x1b[C".to_vec()),
-        ArrowLeft => Some(b"\x1b[D".to_vec()),
-        Home => Some(b"\x1b[H".to_vec()),
-        End => Some(b"\x1b[F".to_vec()),
+        ArrowUp | ArrowDown | ArrowRight | ArrowLeft => {
+            let code = match key {
+                ArrowUp => b'A',
+                ArrowDown => b'B',
+                ArrowRight => b'C',
+                ArrowLeft => b'D',
+                _ => unreachable!(),
+            };
+            let mut mod_mask = 1;
+            if mods.shift {
+                mod_mask += 1;
+            }
+            if mods.alt {
+                mod_mask += 2;
+            }
+            if mods.ctrl {
+                mod_mask += 4;
+            }
+            if mod_mask > 1 {
+                Some(format!("\x1b[1;{mod_mask}{}", code as char).into_bytes())
+            } else {
+                Some(vec![b'\x1b', b'[', code])
+            }
+        }
+        Home => {
+            if mods.ctrl {
+                Some(b"\x1b[1;5H".to_vec())
+            } else {
+                Some(b"\x1b[H".to_vec())
+            }
+        }
+        End => {
+            if mods.ctrl {
+                Some(b"\x1b[1;5F".to_vec())
+            } else {
+                Some(b"\x1b[F".to_vec())
+            }
+        }
         PageUp => Some(b"\x1b[5~".to_vec()),
         PageDown => Some(b"\x1b[6~".to_vec()),
         Delete => Some(b"\x1b[3~".to_vec()),
         Insert => Some(b"\x1b[2~".to_vec()),
+        F1 => Some(b"\x1bOP".to_vec()),
+        F2 => Some(b"\x1bOQ".to_vec()),
+        F3 => Some(b"\x1bOR".to_vec()),
+        F4 => Some(b"\x1bOS".to_vec()),
+        F5 => Some(b"\x1b[15~".to_vec()),
+        F6 => Some(b"\x1b[17~".to_vec()),
+        F7 => Some(b"\x1b[18~".to_vec()),
+        F8 => Some(b"\x1b[19~".to_vec()),
+        F9 => Some(b"\x1b[20~".to_vec()),
+        F10 => Some(b"\x1b[21~".to_vec()),
+        F11 => Some(b"\x1b[23~".to_vec()),
+        F12 => Some(b"\x1b[24~".to_vec()),
         _ => {
             if mods.ctrl && !mods.alt {
                 if let Some(c) = key_to_char(key) {
@@ -367,5 +411,41 @@ pub fn handle_scroll(
                 t.scroll_display(lines);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Key, Modifiers};
+
+    #[test]
+    fn test_map_key_arrows_without_modifiers() {
+        assert_eq!(map_key(Key::ArrowUp, &Modifiers::NONE), Some(b"\x1b[A".to_vec()));
+        assert_eq!(map_key(Key::ArrowDown, &Modifiers::NONE), Some(b"\x1b[B".to_vec()));
+        assert_eq!(map_key(Key::ArrowRight, &Modifiers::NONE), Some(b"\x1b[C".to_vec()));
+        assert_eq!(map_key(Key::ArrowLeft, &Modifiers::NONE), Some(b"\x1b[D".to_vec()));
+    }
+
+    #[test]
+    fn test_map_key_arrows_with_modifiers() {
+        assert_eq!(map_key(Key::ArrowUp, &Modifiers::SHIFT), Some(b"\x1b[1;2A".to_vec()));
+        assert_eq!(map_key(Key::ArrowDown, &Modifiers::ALT), Some(b"\x1b[1;3B".to_vec()));
+        assert_eq!(map_key(Key::ArrowRight, &Modifiers::CTRL), Some(b"\x1b[1;5C".to_vec()));
+        assert_eq!(map_key(Key::ArrowLeft, &(Modifiers::CTRL | Modifiers::SHIFT)), Some(b"\x1b[1;6D".to_vec()));
+    }
+
+    #[test]
+    fn test_map_key_tabs_and_escape() {
+        assert_eq!(map_key(Key::Tab, &Modifiers::NONE), Some(b"\t".to_vec()));
+        assert_eq!(map_key(Key::Tab, &Modifiers::SHIFT), Some(b"\x1b[Z".to_vec()));
+        assert_eq!(map_key(Key::Escape, &Modifiers::NONE), Some(vec![0x1b]));
+    }
+
+    #[test]
+    fn test_map_key_function_keys() {
+        assert_eq!(map_key(Key::F1, &Modifiers::NONE), Some(b"\x1bOP".to_vec()));
+        assert_eq!(map_key(Key::F5, &Modifiers::NONE), Some(b"\x1b[15~".to_vec()));
+        assert_eq!(map_key(Key::F12, &Modifiers::NONE), Some(b"\x1b[24~".to_vec()));
     }
 }

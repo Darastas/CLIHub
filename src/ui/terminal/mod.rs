@@ -657,6 +657,7 @@ fn show_impl(
 
                         if close_bar {
                             tab.search_state.is_open = false;
+                            child_ui.memory_mut(|m| m.surrender_focus(edit_id));
                         }
                     }
                 }
@@ -703,21 +704,34 @@ fn show_impl(
         let find_input_id = ui.id().with("find_input");
         let find_input_focused = ui.memory(|m| m.has_focus(find_input_id));
 
-        let any_other_focused = ui.memory(|m| {
-            if let Some(fid) = m.focused() {
-                fid != resp.id
-            } else {
-                false
-            }
-        });
+        let focused_id = ui.memory(|m| m.focused());
+        let any_other_text_focused = match focused_id {
+            Some(fid) if fid != resp.id => ui.ctx().text_edit_focused(),
+            _ => false,
+        };
 
-        // 点击终端区域时获取焦点；未打开搜索栏且无其他输入框聚焦时在普通终端模式下维持焦点
+        // 点击终端区域时获取焦点；未打开搜索栏且无其他输入框聚焦时在普通/激活终端模式下维持焦点
         if resp.clicked() || resp.drag_started() {
             resp.request_focus();
-        } else if input_enabled && !is_search_open && !find_input_focused && !any_other_focused {
-            if !embedded && !resp.has_focus() {
+        } else if input_enabled && !is_search_open && !find_input_focused && !any_other_text_focused {
+            if (!embedded || is_active) && !resp.has_focus() {
                 resp.request_focus();
             }
+        }
+
+        // 终端获得焦点时，锁定键盘导航事件过滤，防止 egui 将方向键、Tab、Escape 等误作为 UI 控件焦点的切换/丢焦处理
+        if resp.has_focus() {
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    resp.id,
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: true,
+                    },
+                );
+            });
         }
         let window_focused = ui.input(|i| i.focused);
         let focused = resp.has_focus() && window_focused && !find_input_focused && (!embedded || is_active);
